@@ -16,6 +16,10 @@ Enhancements & changes:
 - Search available at all times, even when requests are closed
 - **Browse the songbook by artist or title, A–Z**, for when you don't know what to search for
 - **Live rotation view** — who's singing now, who's up next, what was played recently
+- **Turn estimates** — every singer's first row says how many singers away they are and roughly how
+  long that is, and signed-in singers get a "you're up next" banner off their earliest song
+- **Optional push updates** — the rotation can subscribe to OpenKJ's event stream and redraw when
+  something actually moves, instead of on a timer (see `$openkjEventStreamBase` below)
 - **Optional accounts.** Sign in and your requests are filed under your name, which lets you:
   - reorder your own pending songs
   - remove a song you changed your mind about
@@ -45,6 +49,17 @@ Requirements:
   `http://192.168.1.20:5050`
 - You probably also want to change the `$venueName` in `settings.inc` to personalize your instance,
   though OpenKJ's own event name wins if one is set
+
+Optionally, set `$openkjEventStreamBase` to turn on push updates for the rotation view. **This one is
+opened by the phone, not by the webserver**, so it has to be an address the *browser* can reach — the
+LAN address of the machine running OpenKJ, e.g. `http://192.168.1.20:5050`. `$openkjApiBase` usually
+can't be reused for it, because that one is resolved server-side and is often `127.0.0.1` or a
+Docker-internal name, neither of which means anything on a phone.
+
+Left empty (the default), the rotation just re-polls every `$queuePollSeconds`. With it set, the poll
+drops to the much slower `$queueStreamPollSeconds` and stays on only as a safety net. An OpenKJ too
+old to have the stream route answers 404, which shuts the subscriber down for good, so those builds
+quietly fall back to that poll on their own.
 
 ### Configuring OpenKJ
 
