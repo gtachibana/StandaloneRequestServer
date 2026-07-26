@@ -1,7 +1,8 @@
 <?php
 include("global.inc");
+
 siteheader();
-navbar();
+navbar('songbook');
 
 searchform();
 echo '<div id="data-target">';

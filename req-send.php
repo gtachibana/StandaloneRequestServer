@@ -1,34 +1,53 @@
 <?php
 include('global.inc');
 
-$songid = $_POST['songid'];
-$singer = $_POST['singer'];
+$songid = isset($_POST['songid']) ? (int)$_POST['songid'] : 0;
+$artist = isset($_POST['artist']) ? $_POST['artist'] : '';
+$title = isset($_POST['title']) ? $_POST['title'] : '';
+$singer = isset($_POST['singer']) ? trim($_POST['singer']) : '';
 
-if ($singer == '') {
-  reqFormContent($songid);
+$user = okj_user();
+
+if (!$user['authenticated'] && $singer === '')
+{
+  reqFormContent($songid, $artist, $title);
   die();
 }
 
-$entries = null;
-$wherestring = null;
-$artist = '';
-$title = '';
-$sql = "SELECT artist,title FROM songdb WHERE song_id = $songid";
-foreach ($db->query($sql) as $row) {
-  $artist = $row['artist'];
-  $title = $row['title'];
+if ($user['authenticated'])
+{
+  // songId must be a JSON number here - the API records request ownership via
+  // value("songId").toInt(), and a string would leave the song un-owned.
+  $res = okj_post('/local/request', array('token' => okj_token(), 'songId' => $songid));
+  $singerLabel = $user['username'];
 }
-$stmt = $db->prepare("INSERT INTO requests (singer,artist,title) VALUES(:singer, :artist, :title)");
-$stmt->execute(array(":singer" => $singer, ":artist" => $artist, ":title" => $title));
-newSerial();
+else
+{
+  $res = okj_post('/api.php', array(
+    'command' => 'submitRequest',
+    'songId' => $songid,
+    'singerName' => $singer,
+  ));
+  $singerLabel = $singer;
+}
 
-echo "<p>Request sent for $singer</p>
+if (!$res['ok'])
+{
+  // OpenKJ rejects duplicates ("already in your queue") and closed queues here,
+  // so show the reason and leave the form up to try something else.
+  echo "<p class=\"error\">" . h($res['error']) . "</p>";
+  reqFormContent($songid, $artist, $title);
+  die();
+}
+
+echo "<p>Request sent for " . h($singerLabel) . "</p>
   <div class=\"req-modal-buttons\">
   <button
     type=\"button\"
     class=\"close\"
     hx-on:click=\"htmx.trigger('#req-modal', 'remove-req-modal');\"
     >Close</button>
+  <a class=\"button\" href=\"/queue.php\" hx-boost=\"true\">See the queue</a>
   </div>";
 
 die();

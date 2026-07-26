@@ -1,17 +1,11 @@
 <?php
 include('global.inc');
 
-$songid = $_POST['songid'];
-
-$artist = '';
-$title = '';
-$sql = "SELECT artist,title FROM songdb WHERE song_id = $songid";
-foreach ($db->query($sql) as $row) {
-        $artist = $row['artist'];
-        $title = $row['title'];
-}
-$db = null;
-
+// Artist & title come in from the result button rather than a lookup: the
+// Local Mode API has no fetch-song-by-id route.
+$songid = isset($_POST['songid']) ? (int)$_POST['songid'] : 0;
+$artist = isset($_POST['artist']) ? $_POST['artist'] : '';
+$title = isset($_POST['title']) ? $_POST['title'] : '';
 
 echo "<div
     id=\"req-modal\"
@@ -26,16 +20,15 @@ echo "<div
     ></div>
   <div id=\"req-song-content\" class=\"req-modal-content\">
     <h2>Requesting Song</h2>
-    <p class=\"song\">$artist - $title</p>
+    <p class=\"song\">" . h($artist . ' - ' . $title) . "</p>
     <form
       id=\"req-modal-form\"
       hx-post=\"req-send.php\"
       >";
-reqFormContent($songid);
+reqFormContent($songid, $artist, $title);
 echo "</form>
   </div>
 </div>";
-
 
 die();
 
