@@ -13,6 +13,10 @@ if (!$fragment)
 
 renderQueueFragment();
 
-if (!$fragment) sitefooter();
+if (!$fragment)
+{
+  queueStreamScript();
+  sitefooter();
+}
 
 ?>

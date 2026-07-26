@@ -18,7 +18,19 @@ $openkjTimeout = 4;
 $searchLimit = 200;
 $browseLimit = 300;
 
-// How often, in seconds, phones re-poll the queue view.
+// Base URL of the same embedded API *as the phone sees it*. The queue view
+// subscribes to GET /local/events (Server-Sent Events) here to learn about
+// rotation changes instead of polling for them, so this has to be a host the
+// browser can reach directly - $openkjApiBase above is resolved server-side and
+// is often 127.0.0.1 or a Docker-internal name, neither of which works here.
+// Leave empty to disable the stream and poll only.
+$openkjEventStreamBase = '';
+
+// How often, in seconds, phones re-poll the queue view. The stream carries
+// updates when it is configured, so the poll is only a safety net there - which
+// is why it is much slower. Older OpenKJ builds have no /local/events and the
+// stream shuts itself down on the 404, leaving the fallback poll in charge.
 $queuePollSeconds = 10;
+$queueStreamPollSeconds = 60;
 
 ?>
