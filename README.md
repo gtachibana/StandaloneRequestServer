@@ -24,6 +24,8 @@ Enhancements & changes:
   - reorder your own pending songs
   - remove a song you changed your mind about
   - mark yourself **away** if you step outside, so the rotation skips you instead of stalling
+  - star songs as **favorites** — tap the ☆ beside any search or browse result, and the Favorites
+    page has them ready to request again in two taps
 - Requesting without an account still works exactly as before — just type a name
 - Bounded result sets, so a 100k+ song library can't produce a page too big to load
 - [new.css](https://newcss.net/) for a lightweight css base, dark mode enforced

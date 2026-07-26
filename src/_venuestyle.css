@@ -201,6 +201,42 @@ button.result {
   border-radius: var(--nc-brd-rad);
 }
 
+/* A result paired with its favorite star. Signed out there is no star and the
+   bare button keeps its own margin, so this wrapper never appears. */
+.result-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+.result-row button.result {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+.fav-toggle {
+  flex: 0 0 auto;
+  align-self: stretch;
+  font-size: 1.3rem;
+  line-height: 1;
+  padding: 0 0.75rem;
+  border-color: var(--nc-tx-3);
+  color: var(--nc-tx-3);
+}
+.fav-toggle.on {
+  border-color: var(--nc-lk-1);
+  color: var(--nc-lk-1);
+}
+.fav-toggle.error,
+.fav-toggle.error:hover {
+  border-color: var(--nc-error);
+  color: var(--nc-error);
+}
+.not-accepting .fav-toggle {
+  cursor: pointer;
+}
+
+
 /* Request form errors */
 input.error {
   border: 2px solid var(--nc-error);
