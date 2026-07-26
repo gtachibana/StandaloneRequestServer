@@ -333,6 +333,16 @@ ol.queue-list {
   font-size: smaller;
   color: var(--nc-tx-2);
 }
+/* Turn / wait estimate, shown once per singer under their first song */
+.queue-entry .eta {
+  grid-column: 1;
+  font-size: smaller;
+  color: var(--nc-tx-3);
+}
+.queue-entry.mine .eta {
+  color: var(--nc-lk-1);
+  font-weight: 700;
+}
 .queue-entry .meta {
   grid-column: 2;
   grid-row: 1;
@@ -379,6 +389,14 @@ ol.queue-list {
 }
 .mine-controls button[disabled] {
   opacity: 0.4;
+}
+
+p.notice.your-turn {
+  border-color: var(--nc-tx-3);
+}
+p.notice.your-turn.soon {
+  border-color: var(--nc-lk-1);
+  background: var(--nc-bg-2);
 }
 
 .away-toggle {
