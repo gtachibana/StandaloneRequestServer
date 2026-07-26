@@ -147,6 +147,77 @@ function okj_user_refresh()
   return okj_user(true);
 }
 
+// Builds the id set out of a /local/user/favorites payload and caches it. Kept
+// separate so the favorites page, which has to fetch the full list anyway, can
+// refresh the cache off a response it already paid for.
+function okj_favorites_store($data, $userKey)
+{
+  $ids = array();
+  $songs = (isset($data['songs']) && is_array($data['songs'])) ? $data['songs'] : array();
+  foreach ($songs as $song)
+  {
+    // Keyed by id rather than listed, so the per-result lookup is an isset().
+    if (isset($song['song_id'])) $ids[(int)$song['song_id']] = true;
+  }
+  $_SESSION['okj_favs'] = $ids;
+  $_SESSION['okj_favs_user'] = $userKey;
+  $_SESSION['okj_favs_until'] = time() + 300;
+  return $ids;
+}
+
+// Which songs the signed-in singer has starred. Every search result consults
+// this, so a round trip per render would put the cost of favorites on the
+// keystroke path - hence the session cache. It is invalidated precisely, by
+// okj_favorites_note() on our own edits; the TTL is only a backstop for a
+// change made from the singer's other device.
+function okj_favorite_ids($refresh = false)
+{
+  static $ids = null;
+  if ($refresh) $ids = null;
+  if ($ids !== null) return $ids;
+
+  $user = okj_user();
+  if (!$user['authenticated'])
+  {
+    $ids = array();
+    return $ids;
+  }
+
+  // Keyed by user so a second sign-in on a shared phone can't inherit the
+  // previous singer's stars.
+  $userKey = strtolower($user['username']);
+  if (!$refresh
+      && isset($_SESSION['okj_favs'], $_SESSION['okj_favs_user'], $_SESSION['okj_favs_until'])
+      && $_SESSION['okj_favs_user'] === $userKey
+      && $_SESSION['okj_favs_until'] > time())
+  {
+    $ids = $_SESSION['okj_favs'];
+    return $ids;
+  }
+
+  $res = okj_get('/local/user/favorites', array('token' => okj_token()));
+  // A failed lookup renders every star empty for this request, but is
+  // deliberately not cached - the next render tries again.
+  if (!$res['ok'])
+  {
+    $ids = array();
+    return $ids;
+  }
+
+  $ids = okj_favorites_store($res['data'], $userKey);
+  return $ids;
+}
+
+// Keeps the cache in step with an edit we just made ourselves, instead of
+// spending a re-fetch to learn something we already know.
+function okj_favorites_note($songId, $isFavorite)
+{
+  if (!isset($_SESSION['okj_favs'])) return;
+  $songId = (int)$songId;
+  if ($isFavorite) $_SESSION['okj_favs'][$songId] = true;
+  else unset($_SESSION['okj_favs'][$songId]);
+}
+
 // Search fires on nearly every keystroke and each render needs this, so it gets
 // a few seconds of slack rather than a round trip every time. Going stale for
 // that long is harmless: the request itself is still authoritative, and OpenKJ
@@ -261,6 +332,12 @@ function navbar($active = 'songbook')
     <nav hx-boost='true'>";
   $links = array('/' => 'Search', '/browse.php' => 'Browse', '/queue.php' => 'Queue');
   $keys = array('/' => 'songbook', '/browse.php' => 'browse', '/queue.php' => 'queue');
+  // Favorites belong to an account, so the link is meaningless signed out.
+  if ($user['authenticated'])
+  {
+    $links['/favorites.php'] = 'Favorites';
+    $keys['/favorites.php'] = 'favorites';
+  }
   foreach ($links as $href => $label)
   {
     $current = ($keys[$href] === $active) ? " class='current'" : "";
@@ -352,29 +429,74 @@ function helpHints()
     </details>';
 }
 
+// The star toggle. In a result list it swaps itself, so starring a song costs
+// one small request and leaves the results alone; the favorites page passes
+// render=list instead, because there the row has to disappear.
+//
+// $error renders the star in the state the song is *still* in - a toggle that
+// failed must not show the state the tap asked for.
+function favStar($songId, $isFavorite, $error = '', $render = 'toggle')
+{
+  $songId = (int)$songId;
+  $vals = hxvals(array(
+    'songid' => $songId,
+    'action' => $isFavorite ? 'remove' : 'add',
+    'render' => $render,
+  ));
+  $classes = 'fav-toggle' . ($isFavorite ? ' on' : '') . ($error !== '' ? ' error' : '');
+  $title = $error !== '' ? $error : ($isFavorite ? 'Remove from favorites' : 'Save to favorites');
+  $target = ($render === 'list') ? '#favorites-target' : 'this';
+
+  echo "<button type=\"button\"
+    class=\"" . h($classes) . "\"
+    title=\"" . h($title) . "\"
+    aria-pressed=\"" . ($isFavorite ? 'true' : 'false') . "\"
+    hx-post=\"/favorite-action.php\"
+    hx-target=\"" . h($target) . "\"
+    hx-swap=\"outerHTML\"
+    hx-vals='$vals'>" . ($isFavorite ? '&#9733;' : '&#9734;') . "</button>";
+}
+
 // The API has no lookup-song-by-id route, so artist & title ride along in
 // hx-vals to spare the request modal an extra round trip.
 function songButtons($songs, $accepting)
 {
+  // Signed out there is nothing to star, and the markup stays exactly as it
+  // was - no row wrapper, no favorites lookup.
+  $user = okj_user();
+  $canStar = $user['authenticated'];
+  $favorites = $canStar ? okj_favorite_ids() : array();
+
   foreach ($songs as $song)
   {
     $songId = isset($song['song_id']) ? (int)$song['song_id'] : 0;
     $artist = isset($song['artist']) ? $song['artist'] : '';
     $title = isset($song['title']) ? $song['title'] : '';
     $label = h($artist . ' - ' . $title);
+    $star = ($canStar && $songId > 0);
+
+    if ($star) echo '<div class="result-row">';
 
     if (!$accepting || $songId < 1)
     {
       echo "<button class=\"result song\">$label</button>";
-      continue;
     }
-    $vals = hxvals(array('songid' => $songId, 'artist' => $artist, 'title' => $title));
-    echo "<button
-      class=\"result song\"
-      hx-post=\"/req-modal.php\"
-      hx-target=\"body\"
-      hx-swap=\"beforeend\"
-      hx-vals='$vals'>$label</button>";
+    else
+    {
+      $vals = hxvals(array('songid' => $songId, 'artist' => $artist, 'title' => $title));
+      echo "<button
+        class=\"result song\"
+        hx-post=\"/req-modal.php\"
+        hx-target=\"body\"
+        hx-swap=\"beforeend\"
+        hx-vals='$vals'>$label</button>";
+    }
+
+    if ($star)
+    {
+      favStar($songId, isset($favorites[$songId]));
+      echo '</div>';
+    }
   }
 }
 
