@@ -1,2 +1,5 @@
 *.db
 node_modules/
+
+# Cloudflare Tunnel connector token - a credential, never commit
+.env
