@@ -1,6 +1,18 @@
 <?php
 include_once("settings.inc");
 
+// OpenKJ hands over local wall-clock times with no UTC offset, so PHP has to be
+// standing in the venue's zone to read one back correctly - and PHP defaults to
+// UTC whenever php.ini says nothing, which the stock php:8.0-apache image does.
+// An identifier PHP doesn't know is left alone rather than allowed to warn on
+// every page; DateTimeZone is what validates it, since it accepts the legacy
+// names (US/Hawaii and friends) that timezone_identifiers_list() omits.
+if (isset($venueTimezone) && $venueTimezone !== '')
+{
+  try { date_default_timezone_set((new DateTimeZone($venueTimezone))->getName()); }
+  catch (Exception $e) { /* keep the PHP install's own setting */ }
+}
+
 // Session holds the OpenKJ user session token. Must be started before any
 // output, which is also why every header() call has to precede siteheader().
 if (session_status() === PHP_SESSION_NONE) session_start();

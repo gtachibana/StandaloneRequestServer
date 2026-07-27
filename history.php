@@ -15,10 +15,10 @@ global $historyLimit;
 // this only covers nights they sang signed in under this account.
 
 // last_played is OpenKJ's local wall-clock time with no UTC offset (Qt's
-// ISODate on a local QDateTime) and PHP parses it in *its* timezone. Same host
-// in the usual deployment, so they agree; under Docker they differ by the
-// container's offset, which is why nothing finer than a day is printed - the
-// worst case is then a row reading "yesterday" on the night it was sung.
+// ISODate on a local QDateTime), so it only means anything once PHP is standing
+// in the same zone - which is what $venueTimezone is for. Day granularity is
+// deliberate even so: a venue that hasn't set that setting is silently in UTC,
+// and "last Friday" survives an offset that "11:58pm" would not.
 function okj_fmt_last_sung($value)
 {
   $when = strtotime((string)$value);

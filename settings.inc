@@ -3,6 +3,17 @@
 // Shown in the page header, unless OpenKJ's own event settings supply a name.
 $venueName = 'Sing73k';
 
+// The timezone this venue keeps, as a PHP timezone identifier
+// (https://www.php.net/manual/en/timezones.php). OpenKJ reports timestamps in
+// its own local time with no UTC offset attached - the singer history's
+// last-sung date is currently the only one - so PHP has to be told which zone
+// that is to read them back. It cannot be guessed: PHP falls back to UTC
+// whenever php.ini leaves date.timezone unset, which is the case in the stock
+// php:8.0-apache image, and it ignores the TZ environment variable, so a venue
+// west of Greenwich reads dates a day out until this is right. Leave it empty
+// to keep whatever the PHP install is already configured with.
+$venueTimezone = 'Pacific/Honolulu';
+
 // Base URL of the OpenKJ Local Mode embedded API. OpenKJ serves this when
 // Settings > app mode is Local Mode and the embedded API is enabled; it
 // defaults to port 5050 bound to 0.0.0.0.
