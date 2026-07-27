@@ -38,8 +38,23 @@ $historyLimit = 100;
 // rotation changes instead of polling for them, so this has to be a host the
 // browser can reach directly - $openkjApiBase above is resolved server-side and
 // is often 127.0.0.1 or a Docker-internal name, neither of which works here.
+//
+// "/" means same-origin: the stream is fetched from whatever host served the
+// page, so it rides the tunnel the rest of the site already goes through and
+// port 5050 never has to be published on its own. That requires a proxy rule
+// routing /local/events to the API - see "Exposing the stream" in the README,
+// and set this back to '' until that rule is live, or the stream 404s and the
+// rotation is left on the slow $queueStreamPollSeconds fallback.
+//
+// Naming the API host outright (e.g. http://192.168.1.20:5050) also works, but
+// only do that on a LAN nothing is tunneled out of. The embedded API is built
+// to sit behind this app: current OpenKJ builds gate the admin routes behind a
+// session token, but everything else on it is unauthenticated by design, and
+// builds predating that gate let anyone who can reach the port drive the
+// rotation outright.
+//
 // Leave empty to disable the stream and poll only.
-$openkjEventStreamBase = '';
+$openkjEventStreamBase = '/';
 
 // How often, in seconds, phones re-poll the queue view. The stream carries
 // updates when it is configured, so the poll is only a safety net there - which

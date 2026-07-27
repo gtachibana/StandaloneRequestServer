@@ -244,6 +244,11 @@ function queueStreamScript()
   $base = trim($openkjEventStreamBase);
   if ($base === '') return;
 
+  // A path-only base leaves a relative URL here, which the browser resolves
+  // against the page's own origin - that is what lets "/" mean "same origin",
+  // and it is the only setting that doesn't require publishing port 5050
+  // somewhere a phone can reach. Don't "simplify" the rtrim away: for the "/"
+  // case it is what keeps this from becoming a protocol-relative "//local/...".
   $url = json_encode(rtrim($base, '/') . '/local/events');
   echo '<script>
 (function () {
