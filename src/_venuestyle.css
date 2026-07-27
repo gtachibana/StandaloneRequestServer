@@ -236,6 +236,19 @@ button.result {
   cursor: pointer;
 }
 
+/* History: the same result row, with when it was last sung underneath it. The
+   row's own bottom margin moves out to the wrapper so the meta line stays with
+   the song it describes. */
+.history-entry {
+  margin-bottom: 1rem;
+}
+.history-entry .result-row {
+  margin-bottom: 0.2rem;
+}
+.song-meta {
+  margin: 0 0 0 0.2rem;
+}
+
 
 /* Request form errors */
 input.error {

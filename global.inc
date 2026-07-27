@@ -336,11 +336,14 @@ function navbar($active = 'songbook')
     <nav hx-boost='true'>";
   $links = array('/' => 'Search', '/browse.php' => 'Browse', '/queue.php' => 'Queue');
   $keys = array('/' => 'songbook', '/browse.php' => 'browse', '/queue.php' => 'queue');
-  // Favorites belong to an account, so the link is meaningless signed out.
+  // Favorites and history belong to an account, so the links are meaningless
+  // signed out.
   if ($user['authenticated'])
   {
     $links['/favorites.php'] = 'Favorites';
     $keys['/favorites.php'] = 'favorites';
+    $links['/history.php'] = 'History';
+    $keys['/history.php'] = 'history';
   }
   foreach ($links as $href => $label)
   {

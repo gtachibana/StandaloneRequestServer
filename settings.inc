@@ -18,6 +18,10 @@ $openkjTimeout = 4;
 $searchLimit = 200;
 $browseLimit = 300;
 
+// Max songs to pull back for a singer's own history (the API clamps to 500).
+// One row per distinct song they've sung, so this goes a long way.
+$historyLimit = 100;
+
 // Base URL of the same embedded API *as the phone sees it*. The queue view
 // subscribes to GET /local/events (Server-Sent Events) here to learn about
 // rotation changes instead of polling for them, so this has to be a host the
