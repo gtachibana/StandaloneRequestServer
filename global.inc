@@ -49,7 +49,11 @@ function okj_call($method, $path, $body = null, $query = array())
   global $openkjApiBase, $openkjTimeout;
 
   $url = rtrim($openkjApiBase, '/') . $path;
-  if ($query) $url .= '?' . http_build_query($query);
+  // RFC3986, not http_build_query's RFC1738 default: the latter encodes a space
+  // as '+', and OpenKJ parses the query string with Qt, which only
+  // percent-decodes and leaves '+' as a literal plus. That silently turns every
+  // multi-word search into a search for "creep+radio" and no results.
+  if ($query) $url .= '?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
   $payload = ($method === 'POST') ? json_encode($body === null ? new stdClass() : $body) : null;
 
   if (function_exists('curl_init'))
