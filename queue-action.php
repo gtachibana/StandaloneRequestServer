@@ -33,6 +33,16 @@ elseif ($action === 'up' || $action === 'down')
   ));
   if (!$res['ok']) $error = $res['error'];
 }
+elseif ($action === 'skip')
+{
+  // Carries no entryId: the song being sung right now is the API's own to
+  // identify, and it is also the only thing that can say whether this token is
+  // the one holding the mic. Nothing is written down on success - the queue row
+  // is already played and the history row went in when the song started, so a
+  // song bailed out of halfway still counts as this singer's turn.
+  $res = okj_post('/local/request/skip', array('token' => okj_token()));
+  if (!$res['ok']) $error = $res['error'];
+}
 else
 {
   $error = 'Unknown action.';

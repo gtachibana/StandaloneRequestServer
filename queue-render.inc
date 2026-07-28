@@ -84,6 +84,37 @@ function okj_key_controls($keyChange, $error = '')
   echo '</div>';
 }
 
+// Bailing out of a bad pick without having to catch the KJ's eye. Pointedly not
+// the KJ's own stop button: to everyone else this looks exactly like the track
+// running out, and the rotation advances normally.
+//
+// is_playing is what makes the control safe to offer. The now-playing row comes
+// from queuesongs.played = 1, so it keeps naming the last singer through the gap
+// between one song ending and the next starting - a tap landing in there would
+// otherwise stop the track the KJ has just started for somebody else. The API
+// refuses it anyway, but a button that can only fail is worse than no button.
+// It is absent entirely on OpenKJ builds without the skip route, hence
+// array_key_exists(), the same gate key_change gets.
+//
+// Unlike the key nudge this goes through queue-action.php and re-renders the
+// whole rotation, inheriting #queue-target's four htmx attributes to do it: it
+// is tapped once rather than several times in a row, and what the singer wants
+// to see next is the rotation moving on without them.
+function okj_skip_control($nowPlaying)
+{
+  if (!array_key_exists('is_playing', $nowPlaying) || empty($nowPlaying['is_playing'])) return;
+
+  // No entryId: the API works out for itself what is playing and whether it
+  // belongs to this token, which is the only reading of "who is at the mic"
+  // that can be trusted.
+  echo '<div class="skip-control">
+    <button type="button" class="skip"
+      hx-post="/queue-action.php"
+      hx-confirm="End your song now? The rotation moves on to the next singer."
+      hx-vals=\'' . hxvals(array('action' => 'skip')) . '\'>End my song</button>
+    </div>';
+}
+
 function okj_entry_is_mine($entry, $user)
 {
   if (!$user['authenticated']) return false;
@@ -246,10 +277,14 @@ function renderQueueFragment($actionError = '')
     echo '<section class="now-playing"><h2>Now singing</h2>';
     echo '<p class="singer">' . h(isset($nowPlaying['singer']) ? $nowPlaying['singer'] : '') . '</p>';
     echo '<p class="song">' . h((isset($nowPlaying['artist']) ? $nowPlaying['artist'] : '') . ' - ' . (isset($nowPlaying['title']) ? $nowPlaying['title'] : '')) . '</p>';
-    // key_change is absent on OpenKJ builds without the key route, and offering
-    // a control that can only 404 is worse than offering none.
-    if (array_key_exists('key_change', $nowPlaying) && okj_entry_is_mine($nowPlaying, $user))
-      okj_key_controls($nowPlaying['key_change']);
+    if (okj_entry_is_mine($nowPlaying, $user))
+    {
+      // key_change is absent on OpenKJ builds without the key route, and
+      // offering a control that can only 404 is worse than offering none.
+      if (array_key_exists('key_change', $nowPlaying))
+        okj_key_controls($nowPlaying['key_change']);
+      okj_skip_control($nowPlaying);
+    }
     echo '</section>';
   }
 
