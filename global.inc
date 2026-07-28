@@ -335,8 +335,155 @@ function siteheader()
     \">";
 }
 
+// Subscribes to the API's SSE stream. Two kinds of frame arrive on the one
+// connection:
+//
+//   "queue"  - JSON, not markup, so it can't be swapped in directly. It is used
+//              purely as a "something moved, re-render" signal, which keeps the
+//              rotation server-rendered exactly as before.
+//   "upnext" - the API's own edge detection, one frame per singer as they come
+//              within the KJ's alert window. Fanned out to every subscriber
+//              because the stream carries no identity, so the filtering by name
+//              below is what makes it the singer's own alert.
+//
+// Site-wide, from sitefooter(), rather than from the queue page: a singer is
+// most likely to be searching for their next song when their turn comes round,
+// and an alert that only fires on the page already telling them their position
+// is an alert nobody needs. That is also why a missing #queue-target no longer
+// closes the stream - most pages have none and still want "upnext".
+//
+// Emitted at the end of <body>, which is both after #queue-target exists to be
+// looked up and outside it - that node is replaced wholesale on every refresh,
+// and a script inside it would open a fresh EventSource each time.
+function okj_event_stream_script()
+{
+  global $openkjEventStreamBase;
+
+  $base = trim($openkjEventStreamBase);
+  if ($base === '') return;
+
+  // A path-only base leaves a relative URL here, which the browser resolves
+  // against the page's own origin - that is what lets "/" mean "same origin",
+  // and it is the only setting that doesn't require publishing port 5050
+  // somewhere a phone can reach. Don't "simplify" the rtrim away: for the "/"
+  // case it is what keeps this from becoming a protocol-relative "//local/...".
+  $url = json_encode(rtrim($base, '/') . '/local/events');
+
+  // Matched against the frame's singer name the way okj_entry_is_mine() does
+  // it, folded here so the comparison in JS stays a plain ===. The flags matter
+  // because this is a user-chosen string being written into a <script>.
+  $user = okj_user();
+  $me = json_encode(strtolower(trim($user['username'])),
+    JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+
+  echo '<script>
+(function () {
+  if (!window.EventSource) return;
+
+  var me = ' . $me . ';
+  var watchQueue = !!document.getElementById("queue-target");
+  // Signed out and not looking at the rotation, no frame on this stream could
+  // change anything on this page - so don\'t hold a socket open on OpenKJ\'s
+  // main thread for it.
+  if (me === "" && !watchQueue) return;
+
+  // hx-boost swaps the body without a page load, so an earlier subscriber can
+  // still be live here.
+  if (window.okjQueueStream) { window.okjQueueStream.close(); }
+
+  var stream = new EventSource(' . $url . ');
+  var pending = null;
+  var primed = false;
+  window.okjQueueStream = stream;
+
+  stream.addEventListener("queue", function () {
+    // The stream opens with a snapshot of current state, which is exactly what
+    // the page just rendered - refreshing on it would be a wasted API call.
+    if (!primed) { primed = true; return; }
+
+    if (pending) { clearTimeout(pending); }
+    pending = setTimeout(function () {
+      pending = null;
+      // No rotation on this page. The stream stays open regardless - it is
+      // still carrying this singer\'s "upnext".
+      var el = document.getElementById("queue-target");
+      if (el) { htmx.trigger(el, "queue-changed"); }
+    }, 400);
+  });
+
+  stream.addEventListener("upnext", function (event) {
+    if (me === "") return;
+
+    var frame;
+    try { frame = JSON.parse(event.data); } catch (e) { return; }
+    if (String(frame.singer || "").trim().toLowerCase() !== me) return;
+
+    // OpenKJ tells each singer once per lap, but it forgets everyone the moment
+    // the last subscriber drops - so in a room with one phone in it, every
+    // navigation re-arms an alert already delivered. Keyed on the request, this
+    // is what stops the reconnect from replaying it.
+    var seen = "okj-upnext-" + frame.request_id;
+    try {
+      if (sessionStorage.getItem(seen)) return;
+      sessionStorage.setItem(seen, "1");
+    } catch (e) { /* storage denied - better a repeat alert than none */ }
+
+    showUpNext(frame);
+  });
+
+  function showUpNext(frame) {
+    var existing = document.getElementById("upnext-banner");
+    if (existing) { existing.parentNode.removeChild(existing); }
+
+    var banner = document.createElement("div");
+    banner.id = "upnext-banner";
+    banner.setAttribute("role", "status");
+
+    var turns = parseInt(frame.turns_until, 10) || 1;
+    var headline = document.createElement("strong");
+    headline.textContent = turns <= 1 ? "You\'re up next" : turns + " singers away";
+
+    var song = document.createElement("span");
+    song.className = "upnext-song";
+    // textContent, never innerHTML: these are API strings landing in the DOM,
+    // and h() cannot reach them out here.
+    song.textContent = (frame.artist || "") + " - " + (frame.title || "");
+
+    var link = document.createElement("a");
+    link.href = "/queue.php";
+    link.textContent = "Rotation";
+
+    var dismiss = document.createElement("button");
+    dismiss.type = "button";
+    dismiss.className = "close";
+    dismiss.textContent = "Dismiss";
+    dismiss.addEventListener("click", function () {
+      if (banner.parentNode) { banner.parentNode.removeChild(banner); }
+    });
+
+    banner.appendChild(headline);
+    banner.appendChild(song);
+    banner.appendChild(link);
+    banner.appendChild(dismiss);
+    document.body.appendChild(banner);
+  }
+
+  // An OpenKJ without /local/events answers 404, which EventSource treats as
+  // fatal and never retries - the fallback poll takes it from there, and there
+  // is no up-next alert at all on such a build.
+  stream.addEventListener("error", function () {
+    if (stream.readyState === EventSource.CLOSED && window.okjQueueStream === stream) {
+      window.okjQueueStream = null;
+    }
+  });
+})();
+</script>';
+}
+
 function sitefooter() {
-  echo "</main></body></html>";
+  echo "</main>";
+  okj_event_stream_script();
+  echo "</body></html>";
 }
 
 function navbar($active = 'songbook')

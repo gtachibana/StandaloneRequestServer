@@ -13,10 +13,8 @@ if (!$fragment)
 
 renderQueueFragment();
 
-if (!$fragment)
-{
-  queueStreamScript();
-  sitefooter();
-}
+// The /local/events subscriber lives in sitefooter() now - it serves every
+// page, not just this one.
+if (!$fragment) sitefooter();
 
 ?>
