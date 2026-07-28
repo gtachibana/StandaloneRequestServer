@@ -493,7 +493,7 @@ function navbar($active = 'songbook')
 
   echo "<header><h1><a href='/' hx-boost='true'>" . h($eventName) . " Songbook</a></h1>
     <nav hx-boost='true'>";
-  $links = array('/' => 'Search', '/browse.php' => 'Browse', '/queue.php' => 'Queue');
+  $links = array('/' => 'Search', '/browse.php' => 'Browse', '/queue.php' => 'Rotation');
   $keys = array('/' => 'songbook', '/browse.php' => 'browse', '/queue.php' => 'queue');
   // Favorites and history belong to an account, so the links are meaningless
   // signed out.
