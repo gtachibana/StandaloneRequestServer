@@ -361,6 +361,38 @@ p.hint,
   margin-bottom: 0;
 }
 
+/* Pitch nudge, shown to the singer at the mic only */
+.key-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.key-controls .key-label {
+  font-size: smaller;
+  font-weight: 700;
+  color: var(--nc-lk-1);
+  margin-right: auto;
+}
+.key-controls button {
+  min-width: 3rem;
+  padding: 0.3rem 0.6rem;
+  font-size: 1.2rem;
+}
+.key-controls button[disabled] {
+  opacity: 0.4;
+}
+.key-controls .key-error {
+  flex-basis: 100%;
+  order: 1;
+  font-size: smaller;
+  color: var(--nc-error);
+}
+.key-controls.error .key-label {
+  color: var(--nc-tx-3);
+}
+
 ol.queue-list {
   list-style: decimal;
   padding-left: 1.5rem;
@@ -446,6 +478,49 @@ p.notice.your-turn {
 p.notice.your-turn.soon {
   border-color: var(--nc-lk-1);
   background: var(--nc-bg-2);
+}
+
+/* Pushed in by the /local/events "upnext" frame, on whatever page the singer
+   happens to be on - so it is fixed to the bottom of the viewport rather than
+   placed in any one page's flow. Bottom, not top, to stay under a thumb. */
+#upnext-banner {
+  position: fixed;
+  z-index: 900;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--nc-bg-2);
+  border-top: 3px solid var(--nc-lk-2);
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5);
+  animation: upNextIn 0.2s ease;
+}
+#upnext-banner strong {
+  color: var(--nc-lk-2);
+  font-size: 1.2rem;
+}
+#upnext-banner .upnext-song {
+  flex-basis: 100%;
+  order: 1;
+  font-size: smaller;
+  text-transform: uppercase;
+  color: var(--nc-tx-2);
+}
+#upnext-banner a {
+  margin-left: auto;
+  font-weight: 700;
+}
+#upnext-banner button {
+  padding: 0.3rem 0.6rem;
+  font-size: 1rem;
+}
+@keyframes upNextIn {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
 }
 
 .away-toggle {

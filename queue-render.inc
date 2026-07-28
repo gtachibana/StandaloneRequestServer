@@ -39,6 +39,51 @@ function okj_fmt_turns($turns)
   return $turns . ' singers away';
 }
 
+// Pitch controls for the song being sung *right now*, shown only to the singer
+// singing it. The API takes a direction rather than a value, so a tap composes
+// with wherever the key actually is - the KJ can move the desktop spinbox
+// without the snapshot we rendered from ever hearing about it.
+//
+// Everything inside #queue-target inherits its hx-target, hx-select, hx-swap
+// and hx-sync, so each button has to override all four. Left alone, a key tap
+// would try to pull a #queue-target out of a response that is only this
+// control, swap the whole rotation with the result, and abort (or be aborted
+// by) the queue's own poll.
+//
+// $error re-renders at the key the song is *still* in - never the one the tap
+// asked for - the same rule favStar() follows for a failed toggle.
+function okj_key_controls($keyChange, $error = '')
+{
+  $keyChange = max(-12, min(12, (int)$keyChange));
+  $label = $keyChange === 0 ? 'Original key' : 'Key ' . ($keyChange > 0 ? '+' : '') . $keyChange;
+
+  echo '<div id="key-controls" class="key-controls' . ($error !== '' ? ' error' : '') . '">';
+  echo '<span class="key-label">' . h($label) . '</span>';
+  if ($error !== '') echo '<span class="key-error">' . h($error) . '</span>';
+
+  // The API clamps to +/-12 and reports at_limit, but the stop is derivable
+  // from the value we are already holding - no need to round-trip to find out
+  // a button does nothing.
+  $buttons = array(
+    'down' => array('&minus;', 'Lower the key', $keyChange <= -12),
+    'up' => array('+', 'Raise the key', $keyChange >= 12),
+  );
+  foreach ($buttons as $direction => $button)
+  {
+    echo '<button type="button"
+      title="' . h($button[1]) . '"
+      aria-label="' . h($button[1]) . '"' . ($button[2] ? ' disabled' : '') . '
+      hx-post="/key-action.php"
+      hx-target="#key-controls"
+      hx-swap="outerHTML"
+      hx-select="unset"
+      hx-sync="#key-controls:queue all"
+      hx-vals=\'' . hxvals(array('direction' => $direction, 'current' => (string)$keyChange)) . '\'
+      >' . $button[0] . '</button>';
+  }
+  echo '</div>';
+}
+
 function okj_entry_is_mine($entry, $user)
 {
   if (!$user['authenticated']) return false;
@@ -138,7 +183,8 @@ function okj_your_turn_notice($entries, $user)
 
 // The whole polled region, including the wrapper that carries the refresh
 // triggers. Two of them: the `queue-changed` event that the /local/events
-// subscriber in queueStreamScript() fires, and a timed poll as the fallback.
+// subscriber in okj_event_stream_script() fires, and a timed poll as the
+// fallback.
 function renderQueueFragment($actionError = '')
 {
   global $queuePollSeconds, $queueStreamPollSeconds, $openkjEventStreamBase;
@@ -200,6 +246,10 @@ function renderQueueFragment($actionError = '')
     echo '<section class="now-playing"><h2>Now singing</h2>';
     echo '<p class="singer">' . h(isset($nowPlaying['singer']) ? $nowPlaying['singer'] : '') . '</p>';
     echo '<p class="song">' . h((isset($nowPlaying['artist']) ? $nowPlaying['artist'] : '') . ' - ' . (isset($nowPlaying['title']) ? $nowPlaying['title'] : '')) . '</p>';
+    // key_change is absent on OpenKJ builds without the key route, and offering
+    // a control that can only 404 is worse than offering none.
+    if (array_key_exists('key_change', $nowPlaying) && okj_entry_is_mine($nowPlaying, $user))
+      okj_key_controls($nowPlaying['key_change']);
     echo '</section>';
   }
 
@@ -228,70 +278,6 @@ function renderQueueFragment($actionError = '')
   }
 
   echo '</div>';
-}
-
-// Subscribes to the API's SSE stream and turns each frame into a `queue-changed`
-// event on #queue-target. The frames carry JSON, not markup, so they can't be
-// swapped in directly - they're used purely as a "something moved, re-render"
-// signal, which keeps the rotation server-rendered exactly as before.
-//
-// Belongs outside #queue-target: that node is replaced wholesale on every
-// refresh, and a script inside it would open a fresh EventSource each time.
-function queueStreamScript()
-{
-  global $openkjEventStreamBase;
-
-  $base = trim($openkjEventStreamBase);
-  if ($base === '') return;
-
-  // A path-only base leaves a relative URL here, which the browser resolves
-  // against the page's own origin - that is what lets "/" mean "same origin",
-  // and it is the only setting that doesn't require publishing port 5050
-  // somewhere a phone can reach. Don't "simplify" the rtrim away: for the "/"
-  // case it is what keeps this from becoming a protocol-relative "//local/...".
-  $url = json_encode(rtrim($base, '/') . '/local/events');
-  echo '<script>
-(function () {
-  if (!window.EventSource) return;
-  // hx-boost swaps the body without a page load, so an earlier subscriber can
-  // still be live here.
-  if (window.okjQueueStream) { window.okjQueueStream.close(); }
-
-  var stream = new EventSource(' . $url . ');
-  var pending = null;
-  var primed = false;
-  window.okjQueueStream = stream;
-
-  function shutdown() {
-    stream.close();
-    if (window.okjQueueStream === stream) { window.okjQueueStream = null; }
-  }
-
-  stream.addEventListener("queue", function () {
-    // The stream opens with a snapshot of current state, which is exactly what
-    // the page just rendered - refreshing on it would be a wasted API call.
-    if (!primed) { primed = true; return; }
-
-    var target = document.getElementById("queue-target");
-    if (!target) { shutdown(); return; }
-
-    if (pending) { clearTimeout(pending); }
-    pending = setTimeout(function () {
-      pending = null;
-      var el = document.getElementById("queue-target");
-      if (el) { htmx.trigger(el, "queue-changed"); } else { shutdown(); }
-    }, 400);
-  });
-
-  // An OpenKJ without /local/events answers 404, which EventSource treats as
-  // fatal and never retries - the fallback poll takes it from there.
-  stream.addEventListener("error", function () {
-    if (stream.readyState === EventSource.CLOSED && window.okjQueueStream === stream) {
-      window.okjQueueStream = null;
-    }
-  });
-})();
-</script>';
 }
 
 ?>
