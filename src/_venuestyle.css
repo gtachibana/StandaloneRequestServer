@@ -393,6 +393,22 @@ p.hint,
   color: var(--nc-tx-3);
 }
 
+/* Ending your own song early. Deliberately quiet and full-width-last: it sits
+   under the pitch nudge in the same box, and it is the one control here that
+   can't be undone. */
+.skip-control {
+  margin-top: 0.75rem;
+  text-align: right;
+}
+.skip-control button.skip {
+  font-size: smaller;
+  padding: 0.3rem 0.8rem;
+  min-width: 1%;
+  border-color: var(--nc-error);
+  color: var(--nc-error);
+  background: transparent;
+}
+
 ol.queue-list {
   list-style: decimal;
   padding-left: 1.5rem;
