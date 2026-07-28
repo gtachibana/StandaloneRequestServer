@@ -124,42 +124,87 @@ function okj_entry_is_mine($entry, $user)
 
 // entryId has to go over the wire as a JSON *string*: the API reads it with
 // value("entryId").toString().toInt(), which yields 0 for a JSON number.
-function okj_own_song_controls($entry, $isFirst, $isLast)
+//
+// $canMove is false for a singer holding exactly one song, where both arrows
+// would render disabled: two greyed-out arrows read as "you may not move up the
+// rotation, sorry" rather than "there is nothing to reorder", and that is the
+// most common case in the room.
+function okj_own_song_controls($entry, $isFirst, $isLast, $canMove)
 {
   $entryId = (string)(isset($entry['request_id']) ? $entry['request_id'] : 0);
   echo '<span class="mine-controls">';
-  echo '<button title="Move up"' . ($isFirst ? ' disabled' : '') . '
-    hx-post="/queue-action.php"
-    hx-vals=\'' . hxvals(array('action' => 'up', 'entryId' => $entryId)) . '\'>&uarr;</button>';
-  echo '<button title="Move down"' . ($isLast ? ' disabled' : '') . '
-    hx-post="/queue-action.php"
-    hx-vals=\'' . hxvals(array('action' => 'down', 'entryId' => $entryId)) . '\'>&darr;</button>';
-  echo '<button title="Remove" class="remove"
+  if ($canMove)
+  {
+    echo '<button title="Sing this sooner" aria-label="Sing this sooner"' . ($isFirst ? ' disabled' : '') . '
+      hx-post="/queue-action.php"
+      hx-vals=\'' . hxvals(array('action' => 'up', 'entryId' => $entryId)) . '\'>&uarr;</button>';
+    echo '<button title="Sing this later" aria-label="Sing this later"' . ($isLast ? ' disabled' : '') . '
+      hx-post="/queue-action.php"
+      hx-vals=\'' . hxvals(array('action' => 'down', 'entryId' => $entryId)) . '\'>&darr;</button>';
+  }
+  echo '<button title="Remove this song" aria-label="Remove this song" class="remove"
     hx-post="/queue-action.php"
     hx-vals=\'' . hxvals(array('action' => 'remove', 'entryId' => $entryId)) . '\'>&times;</button>';
   echo '</span>';
 }
 
+// The singer's own songs, pulled out of the rotation into a list that contains
+// nothing else. The reorder arrows used to live on the rotation rows, where an
+// up arrow sitting in a list of everybody's songs reads as "move me up the
+// rotation" - which is not what /local/request/move does, and not something the
+// API offers at all. In a list holding only this singer's songs the scope needs
+// no explaining.
+//
+// Costs no extra API call: this renders from the same /local/queue response the
+// rotation below it is already built from, which matters because that response
+// is served off OpenKJ's Qt main thread.
+//
+// The song at the mic is deliberately absent - it is already its own section
+// up the page, with the controls that apply to a song in progress (key, skip)
+// rather than the ones that apply to a song still waiting.
+function okj_render_my_queue($entries, $user)
+{
+  if (!$user['authenticated']) return;
+
+  $mine = array();
+  foreach ($entries as $entry)
+  {
+    if (okj_entry_is_mine($entry, $user)) $mine[] = $entry;
+  }
+  if (!count($mine)) return;
+
+  $canMove = count($mine) > 1;
+  $last = count($mine) - 1;
+
+  echo '<section class="my-queue"><h2>My Queue</h2>';
+  echo '<p class="hint">' . ($canMove
+    ? 'You&rsquo;ll sing these in this order. Reordering them doesn&rsquo;t change your place in the rotation.'
+    : 'Your next song.') . '</p>';
+  echo '<ol class="queue-list my-queue-list">';
+  foreach ($mine as $i => $entry)
+  {
+    echo '<li class="queue-entry mine">';
+    echo '<span class="song">' . h((isset($entry['artist']) ? $entry['artist'] : '') . ' - ' . (isset($entry['title']) ? $entry['title'] : '')) . '</span>';
+    echo '<span class="meta">' . okj_fmt_duration(isset($entry['duration_seconds']) ? $entry['duration_seconds'] : 0)
+      . okj_key_change(isset($entry['key_change']) ? $entry['key_change'] : 0) . '</span>';
+    okj_own_song_controls($entry, $i === 0, $i === $last, $canMove);
+    echo '</li>';
+  }
+  echo '</ol></section>';
+}
+
+// The rotation proper: read-only, every singer's songs, and the one place that
+// shows where this singer sits relative to everyone else. Managing your own
+// songs happens in okj_render_my_queue() above.
 function okj_render_queue_entries($entries, $user)
 {
-  // Position within the singer's own run of songs decides whether up/down are
-  // available - the API's move is per-singer, so it can never change the
-  // singer's place in the rotation.
-  $mineIndexes = array();
-  foreach ($entries as $i => $entry)
-  {
-    if (okj_entry_is_mine($entry, $user)) $mineIndexes[] = $i;
-  }
-  $firstMine = count($mineIndexes) ? $mineIndexes[0] : -1;
-  $lastMine = count($mineIndexes) ? $mineIndexes[count($mineIndexes) - 1] : -1;
-
   // turns_until/wait_seconds describe the *singer's* next turn, so every song a
   // singer has queued carries the same pair. Showing it once, on their first
   // row, is the only reading that isn't a lie about the songs below it.
   $seenSingers = array();
 
   echo '<ol class="queue-list">';
-  foreach ($entries as $i => $entry)
+  foreach ($entries as $entry)
   {
     $mine = okj_entry_is_mine($entry, $user);
     $singerKey = strtolower(trim(isset($entry['singer']) ? $entry['singer'] : ''));
@@ -181,7 +226,6 @@ function okj_render_queue_entries($entries, $user)
       echo '<span class="eta">' . h(okj_fmt_turns($entry['turns_until']))
         . ($wait > 0 ? ' &middot; ' . h(okj_fmt_wait($wait)) : '') . '</span>';
     }
-    if ($mine) okj_own_song_controls($entry, $i === $firstMine, $i === $lastMine);
     echo '</li>';
   }
   echo '</ol>';
@@ -287,6 +331,8 @@ function renderQueueFragment($actionError = '')
     }
     echo '</section>';
   }
+
+  okj_render_my_queue($upNext, $user);
 
   echo '<section class="up-next"><h2>Up next</h2>';
   if (count($upNext))

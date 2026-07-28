@@ -488,6 +488,39 @@ ol.queue-list {
   opacity: 0.4;
 }
 
+/* The singer's own songs, lifted out of the rotation so the reorder arrows sit
+   in a list that holds nothing but their songs. */
+.my-queue {
+  border-left: 3px solid var(--nc-lk-1);
+  background: var(--nc-bg-2);
+  border-radius: var(--nc-brd-rad);
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 1.5rem;
+}
+.my-queue h2 {
+  margin-top: 0;
+}
+.my-queue .hint {
+  margin-bottom: 0.5rem;
+}
+.my-queue-list {
+  margin-bottom: 0;
+}
+/* Every row in here is this singer's, so the per-row "mine" treatment would
+   just repeat what the section already says. */
+.my-queue-list .queue-entry.mine {
+  background: none;
+  border-left: none;
+  padding-left: 0;
+}
+.my-queue-list .queue-entry:last-child {
+  border-bottom: none;
+}
+.my-queue-list .song {
+  color: var(--nc-tx-1);
+  font-size: inherit;
+}
+
 p.notice.your-turn {
   border-color: var(--nc-tx-3);
 }
