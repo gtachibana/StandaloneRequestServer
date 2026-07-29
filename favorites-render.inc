@@ -64,12 +64,14 @@ function renderFavoritesFragment($actionError = '')
     $songId = isset($song['song_id']) ? (int)$song['song_id'] : 0;
     $artist = isset($song['artist']) ? $song['artist'] : '';
     $title = isset($song['title']) ? $song['title'] : '';
-    $label = h($artist . ' - ' . $title);
+    $duration = isset($song['duration_seconds']) ? (int)$song['duration_seconds'] : 0;
+    $label = '<span class="song-label">' . h($artist . ' - ' . $title) . '</span>'
+      . okj_song_length($duration);
 
     echo '<div class="result-row">';
     if ($accepting && $songId > 0)
     {
-      $vals = hxvals(array('songid' => $songId, 'artist' => $artist, 'title' => $title));
+      $vals = hxvals(array('songid' => $songId, 'artist' => $artist, 'title' => $title, 'duration' => $duration));
       echo "<button
         class=\"result song\"
         hx-post=\"/req-modal.php\"

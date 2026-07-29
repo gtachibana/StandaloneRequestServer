@@ -275,6 +275,31 @@ function hxvals($values)
   return h(json_encode($values));
 }
 
+// A song's length as m:ss, or '' when the library doesn't know it. Lives here
+// rather than in queue-render.inc because the song lists want it too.
+//
+// Unknown arrives as 1, not 0: every route floors the value with
+// `std::max(1, COALESCE(ds.duration, 0) / 1000)`, so a library scanned without
+// durations would otherwise read "0:01" against every song in it. Nothing in a
+// karaoke library is under half a minute, so anything shorter is missing
+// metadata rather than a short song, and saying nothing beats saying that.
+function okj_fmt_duration($seconds)
+{
+  $seconds = (int)$seconds;
+  if ($seconds < 30) return '';
+  return sprintf('%d:%02d', intdiv($seconds, 60), $seconds % 60);
+}
+
+// The length as it rides inside a result button, so the three lists that offer
+// songs render it identically. Returns markup rather than echoing it, the way
+// okj_key_change() does, because it is composed into a button being built.
+function okj_song_length($seconds)
+{
+  $length = okj_fmt_duration($seconds);
+  if ($length === '') return '';
+  return '<span class="song-len">' . $length . '</span>';
+}
+
 // htmx swaps a fragment into an existing page; a direct hit (or an hx-boost'ed
 // navigation) needs the whole document. Pages render only their target
 // fragment when this is true.
@@ -638,7 +663,12 @@ function songButtons($songs, $accepting)
     $songId = isset($song['song_id']) ? (int)$song['song_id'] : 0;
     $artist = isset($song['artist']) ? $song['artist'] : '';
     $title = isset($song['title']) ? $song['title'] : '';
-    $label = h($artist . ' - ' . $title);
+    $duration = isset($song['duration_seconds']) ? (int)$song['duration_seconds'] : 0;
+    // The label is its own span so the length can sit opposite it: a flex
+    // button lays out an anonymous text node too, but there is no selector to
+    // stop that one from squeezing the length off the row.
+    $label = '<span class="song-label">' . h($artist . ' - ' . $title) . '</span>'
+      . okj_song_length($duration);
     $star = ($canStar && $songId > 0);
 
     if ($star) echo '<div class="result-row">';
@@ -649,7 +679,9 @@ function songButtons($songs, $accepting)
     }
     else
     {
-      $vals = hxvals(array('songid' => $songId, 'artist' => $artist, 'title' => $title));
+      // duration rides along for the modal's benefit, the same way artist and
+      // title do - there is no fetch-song-by-id route to look it up with.
+      $vals = hxvals(array('songid' => $songId, 'artist' => $artist, 'title' => $title, 'duration' => $duration));
       echo "<button
         class=\"result song\"
         hx-post=\"/req-modal.php\"

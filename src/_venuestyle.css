@@ -199,6 +199,23 @@ button.result {
   margin-bottom: 1rem;
   text-align: left;
   border-radius: var(--nc-brd-rad);
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+/* Song length, opposite the title rather than on a line of its own: a meta line
+   under every row would add a couple of hundred of them to a full search. The
+   title takes the slack so the length stays put as rows wrap to two lines. */
+.result .song-label {
+  flex: 1;
+  min-width: 0;
+}
+.result .song-len {
+  flex: 0 0 auto;
+  font-size: smaller;
+  font-weight: 400;
+  color: var(--nc-tx-3);
+  white-space: nowrap;
 }
 
 /* A result paired with its favorite star. Signed out there is no star and the
