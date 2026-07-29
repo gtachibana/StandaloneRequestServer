@@ -1,10 +1,7 @@
 <?php
 
-function okj_fmt_duration($seconds)
-{
-  $seconds = max(0, (int)$seconds);
-  return sprintf('%d:%02d', intdiv($seconds, 60), $seconds % 60);
-}
+// okj_fmt_duration() moved to global.inc when the song lists started showing
+// lengths too.
 
 function okj_key_change($keyChange)
 {

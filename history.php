@@ -103,7 +103,12 @@ else
         $songId = isset($song['song_id']) ? (int)$song['song_id'] : 0;
         $artist = isset($song['artist']) ? $song['artist'] : '';
         $title = isset($song['title']) ? $song['title'] : '';
-        $label = h($artist . ' - ' . $title);
+        // Comes off the same join to dbsongs as `available`, so a song the
+        // library has lost has no length either - and okj_song_length() drops
+        // it rather than printing the floor value.
+        $duration = isset($song['duration_seconds']) ? (int)$song['duration_seconds'] : 0;
+        $label = '<span class="song-label">' . h($artist . ' - ' . $title) . '</span>'
+          . okj_song_length($duration);
         // `available` is the API's join to dbsongs having found the file. A song
         // the library has since lost still belongs in the list, but there is
         // nothing to request.
@@ -114,7 +119,7 @@ else
 
         if ($accepting && $inLibrary)
         {
-          $vals = hxvals(array('songid' => $songId, 'artist' => $artist, 'title' => $title));
+          $vals = hxvals(array('songid' => $songId, 'artist' => $artist, 'title' => $title, 'duration' => $duration));
           echo "<button
             class=\"result song\"
             hx-post=\"/req-modal.php\"
