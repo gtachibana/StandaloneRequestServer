@@ -386,13 +386,17 @@ function renderQueueFragment($actionError = '')
 
   $data = $res['data'];
   $nowPlaying = (isset($data['now_playing']) && is_array($data['now_playing'])) ? $data['now_playing'] : array();
-  $upNext = (isset($data['up_next']) && is_array($data['up_next'])) ? $data['up_next'] : array();
+  // The pending queue, ordered by rotation position then queue position - so the
+  // head of it is what "up next" means. OpenKJ used to send a second copy of this
+  // array as `up_next`, which was byte-for-byte the same list and the largest
+  // thing in every snapshot; reading `requests` works against those builds too.
+  $requests = (isset($data['requests']) && is_array($data['requests'])) ? $data['requests'] : array();
   $recent = (isset($data['recently_played']) && is_array($data['recently_played'])) ? $data['recently_played'] : array();
 
   if (!empty($data['queueLocked']))
     echo '<p class="notice">Requests are closed right now.</p>';
 
-  okj_your_turn_notice($upNext, $user);
+  okj_your_turn_notice($requests, $user);
 
   if ($user['authenticated'] && $user['inRotation'])
   {
@@ -428,12 +432,12 @@ function renderQueueFragment($actionError = '')
     echo '</section>';
   }
 
-  okj_render_my_queue($upNext, $user);
+  okj_render_my_queue($requests, $user);
 
   echo '<section class="up-next"><h2>Up next</h2>';
-  if (count($upNext))
+  if (count($requests))
   {
-    okj_render_queue_entries($upNext, $user);
+    okj_render_queue_entries($requests, $user);
     if (!$user['authenticated'])
       echo '<p class="hint"><a href="/account.php" hx-boost="true">Sign in</a> to reorder or remove your own songs.</p>';
   }

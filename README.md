@@ -71,10 +71,12 @@ Two ways to satisfy that:
   of** (see the warning below).
 
 Left empty, the rotation just re-polls every `$queuePollSeconds`. With it set, the poll drops to the
-much slower `$queueStreamPollSeconds` and stays on only as a safety net. An OpenKJ too old to have
-the stream route answers 404, which shuts the subscriber down for good, so those builds quietly fall
-back to that poll on their own — as does a same-origin setup whose proxy rule isn't in place yet, so
-**add the rule before flipping the setting** or you'll land on the 60s poll instead of the 10s one.
+much slower `$queueStreamPollSeconds` and stays on only as a safety net — the stream redraws the
+rotation the moment anything moves, and the poll is what keeps the turn estimates counting down in
+between. An OpenKJ too old to have the stream route answers 404, which shuts the subscriber down for
+good, so those builds quietly fall back to that poll on their own — as does a same-origin setup whose
+proxy rule isn't in place yet, so **add the rule before flipping the setting** or you'll land on the
+60s poll instead of the 10s one.
 
 ### Exposing the stream
 
@@ -113,12 +115,40 @@ Worth adding on top:
   lock every phone in the room out. Every new connection also runs a queue query on OpenKJ's Qt main
   thread, so connect-churn shows up as the KJ's UI stuttering. A rule of ~5 requests/minute per IP on
   `/local/events` covers both; Cloudflare's free tier includes enough for this one.
-- **Verify it actually streams.** `curl -N https://songbook.example.com/local/events` should print a
-  `queue` frame immediately, then another every 20s. If it hangs and then dumps everything at once,
-  something in the chain is buffering.
+- **Verify it actually streams.** `curl -N 'https://songbook.example.com/local/events?deltas=1'`
+  should print a `queue` frame immediately, then something every 20s — a `tick` frame while a show is
+  running, or a bare `: keepalive` comment while nothing is moving. (`?deltas=1` is what the phones
+  ask for; without it every one of those 20s beats is a full snapshot instead.) If it hangs and then
+  dumps everything at once, something in the chain is buffering.
 - **Check the idle timeout.** Cloudflare drops a proxied connection that goes quiet for ~100s. The
-  API's 20s keepalive snapshot stays well inside that, which is what keeps the stream alive — if you
-  put something else in front, keep its read timeout above 20s.
+  API writes something every 20s no matter how quiet the room is, which is what keeps the stream
+  alive — if you put something else in front, keep its read timeout above 20s.
+
+### Rate limits and client addresses
+
+OpenKJ rate-limits two things per client: cheer taps, and failed logins (five in a row locks that
+client out for five minutes). "Per client" means per address the API was called from — and this app
+calls it server-side for everybody, so out of the box the whole venue counts as one client. A room
+mid-ovation throttles itself, and one person mistyping their password locks out every singer and the
+KJ.
+
+The fix is a chain of forwarded addresses, and each hop only believes the one in front of it if it
+was told to:
+
+- **This app → OpenKJ.** Every call carries `X-Forwarded-For`. OpenKJ reads it when the webserver is
+  loopback to it, which is the usual single-machine setup and needs no configuration. If the
+  webserver is a different box, add its address (comma separated, if more than one) to
+  `embeddedApiTrustedProxies` under `[localMode]` in OpenKJ's `openkj.ini` — in the app data
+  directory on Windows and macOS, `~/.config/OpenKJ/OpenKJ.conf` on Linux. There's no field for it in
+  the settings dialog, deliberately.
+- **Proxy → this app.** `$trustedProxies` in `settings.inc` lists proxies whose `CF-Connecting-IP` or
+  `X-Forwarded-For` this app will believe. Loopback is always believed, so a Cloudflare Tunnel
+  connector or nginx on the same machine already works; the setting is for one that reaches the
+  webserver over the network.
+
+Leave them unset and you get the old behaviour, which is a nuisance and not a hole. Set them wrong —
+naming a hop that doesn't overwrite the header, or one anybody can reach — and the lockout stops
+meaning anything, since an attacker can just claim a fresh address per guess.
 
 ### Configuring OpenKJ
 

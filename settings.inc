@@ -24,6 +24,22 @@ $openkjApiBase = 'http://127.0.0.1:5050';
 // stalled UI for the KJ.
 $openkjTimeout = 4;
 
+// Addresses of proxies in front of *this app* whose client-address headers
+// (CF-Connecting-IP, then X-Forwarded-For) may be believed. Loopback is always
+// trusted, which already covers a tunnel connector or reverse proxy running on
+// this machine, so this is only needed when that proxy reaches the webserver
+// over the network.
+//
+// It exists because OpenKJ's rate limits - the cheer bucket and the login
+// lockout - key on whoever called the API, and that is always this webserver:
+// without a forwarded address the whole room shares one bucket, so an ovation
+// throttles itself and one singer's fumbled password locks everybody out. Empty
+// is the safe default: a header believed from an untrusted hop is a header the
+// phone chose, and a phone that picks its own address can sidestep the lockout
+// at will. The API in turn only reads what we send when *it* trusts this
+// webserver - loopback, or its own embeddedApiTrustedProxies list.
+$trustedProxies = array();
+
 // Max songs to pull back per search (the API itself clamps to 500) and per
 // browse-by-letter page (clamped to 1000).
 $searchLimit = 200;

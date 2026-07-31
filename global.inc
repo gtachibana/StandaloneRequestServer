@@ -56,6 +56,63 @@ function okj_interpret($data, $status)
   return array('ok' => $ok, 'status' => $status, 'data' => $data, 'error' => $error);
 }
 
+// Whether a client-address header arriving here may be believed - i.e. whether
+// the thing that made this request is a proxy we put there ourselves. Mirrors
+// isTrustedProxy() on the OpenKJ side, including trusting loopback outright: a
+// tunnel connector or reverse proxy sharing this machine reaches PHP over
+// 127.0.0.1, and nothing off-box can forge that.
+function okj_proxy_is_trusted($peer)
+{
+  global $trustedProxies;
+
+  if ($peer === '') return false;
+  if ($peer === '127.0.0.1' || $peer === '::1' || $peer === '::ffff:127.0.0.1') return true;
+
+  $trusted = (isset($trustedProxies) && is_array($trustedProxies)) ? $trustedProxies : array();
+  foreach ($trusted as $entry)
+  {
+    if (strcasecmp(trim($entry), $peer) === 0) return true;
+  }
+  return false;
+}
+
+// The address OpenKJ should bucket this request under. It matters because every
+// call this app makes is server-side: left to itself the API sees one client -
+// this webserver - for the entire room, so the whole venue shares one cheer
+// bucket (an ovation throttling itself) and one login lockout (one person's
+// fumbled password shutting every singer, and the KJ, out for five minutes).
+//
+// Believed only from a trusted hop, and for the same reason OpenKJ refuses to
+// believe it from an untrusted one: the value keys a lockout, so anyone able to
+// choose it freely can dodge the lockout entirely by picking a new address per
+// attempt. Unset $trustedProxies is the safe reading - the room shares a bucket
+// the way it always did, which is a nuisance rather than a hole.
+function okj_client_address()
+{
+  static $address = null;
+  if ($address !== null) return $address;
+
+  $peer = isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : '';
+  $address = $peer;
+  if (!okj_proxy_is_trusted($peer)) return $address;
+
+  // Cloudflare's header first, as OpenKJ does: the edge sets it and discards any
+  // copy the phone sent, so it can't be spoofed from outside. X-Forwarded-For is
+  // the general fallback, leftmost entry being the original client.
+  $forwarded = isset($_SERVER['HTTP_CF_CONNECTING_IP']) ? $_SERVER['HTTP_CF_CONNECTING_IP'] : '';
+  if ($forwarded === '' && isset($_SERVER['HTTP_X_FORWARDED_FOR']))
+  {
+    $parts = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
+    $forwarded = $parts[0];
+  }
+  $forwarded = trim($forwarded);
+
+  // Validated rather than passed on as written: on the API side this becomes a
+  // hash key held until the idle sweep, and a header is a header.
+  if ($forwarded !== '' && filter_var($forwarded, FILTER_VALIDATE_IP)) $address = $forwarded;
+  return $address;
+}
+
 function okj_call($method, $path, $body = null, $query = array())
 {
   global $openkjApiBase, $openkjTimeout;
@@ -68,6 +125,13 @@ function okj_call($method, $path, $body = null, $query = array())
   if ($query) $url .= '?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
   $payload = ($method === 'POST') ? json_encode($body === null ? new stdClass() : $body) : null;
 
+  // Who this call is really on behalf of. OpenKJ only reads it when this
+  // webserver is a hop it trusts, and falls back to our address when it isn't -
+  // which is exactly the behaviour we had before the header existed.
+  $headers = array('Content-Type: application/json', 'Accept: application/json');
+  $client = okj_client_address();
+  if ($client !== '') $headers[] = 'X-Forwarded-For: ' . $client;
+
   if (function_exists('curl_init'))
   {
     $ch = curl_init($url);
@@ -75,7 +139,7 @@ function okj_call($method, $path, $body = null, $query = array())
       CURLOPT_RETURNTRANSFER => true,
       CURLOPT_CONNECTTIMEOUT => 2,
       CURLOPT_TIMEOUT => $openkjTimeout,
-      CURLOPT_HTTPHEADER => array('Content-Type: application/json', 'Accept: application/json'),
+      CURLOPT_HTTPHEADER => $headers,
     ));
     if ($method === 'POST')
     {
@@ -92,7 +156,7 @@ function okj_call($method, $path, $body = null, $query = array())
   {
     $options = array('http' => array(
       'method' => $method,
-      'header' => "Content-Type: application/json\r\nAccept: application/json\r\n",
+      'header' => implode("\r\n", $headers) . "\r\n",
       'timeout' => $openkjTimeout,
       'ignore_errors' => true,
     ));
@@ -458,6 +522,8 @@ function siteheader()
 //   "queue"  - JSON, not markup, so it can't be swapped in directly. It is used
 //              purely as a "something moved, re-render" signal, which keeps the
 //              rotation server-rendered exactly as before.
+//   "tick"   - the countdowns moved and nothing else did. Deliberately ignored;
+//              see the ?deltas=1 note below.
 //   "upnext" - the API's own edge detection, one frame per singer as they come
 //              within the KJ's alert window. Fanned out to every subscriber
 //              because the stream carries no identity, so the filtering by name
@@ -488,7 +554,29 @@ function okj_event_stream_script()
   // and it is the only setting that doesn't require publishing port 5050
   // somewhere a phone can reach. Don't "simplify" the rtrim away: for the "/"
   // case it is what keeps this from becoming a protocol-relative "//local/...".
-  $url = json_encode(rtrim($base, '/') . '/local/events');
+  //
+  // ?deltas=1 opts into the API's smaller refresh frames. Without it, OpenKJ
+  // pushes a whole snapshot to every subscriber every 20s whether or not the
+  // show moved - and since a "queue" frame makes this page re-render, that was
+  // /local/user/me + /local/queue per phone per 20s onto OpenKJ's Qt main
+  // thread, faster than the fallback poll it was supposed to be replacing. With
+  // it, "queue" arrives only when something actually changed; a tick where only
+  // the countdowns moved comes as a "tick" frame and one where nothing moved as
+  // an SSE comment, and neither wakes this page at all.
+  //
+  // Nothing listens for "tick" - EventSource drops an event with no listener,
+  // so ignoring it costs a handler we'd have to write rather than an API call
+  // we'd have to make. What it carries is wait_seconds keyed by request id, and
+  // applying that here would mean re-implementing okj_fmt_wait() in JS to write
+  // a number the rotation already rounds to the nearest minute. The estimates
+  // instead go stale until the next real change or the $queueStreamPollSeconds
+  // poll, which is the only page that shows them anyway.
+  //
+  // Hardcoded rather than read from /local/capabilities (queueDeltaQueryParam),
+  // the same way the path itself is: an OpenKJ predating deltas ignores an
+  // unknown query parameter and keeps sending full frames, so the cost of
+  // guessing wrong is the behaviour we already had.
+  $url = json_encode(rtrim($base, '/') . '/local/events?deltas=1');
 
   // Matched against the frame's singer name the way okj_entry_is_mine() does
   // it, folded here so the comparison in JS stays a plain ===. The flags matter
