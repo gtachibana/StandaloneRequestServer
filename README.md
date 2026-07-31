@@ -20,6 +20,10 @@ Enhancements & changes:
   long that is, and signed-in singers get a "you're up next" banner off their earliest song
 - **Optional push updates** — the rotation can subscribe to OpenKJ's event stream and redraw when
   something actually moves, instead of on a timer (see `$openkjEventStreamBase` below)
+- **Cheer the singer on** — tap 👏 🔥 💖 ⭐ 🎉 under whoever's at the mic and the emoji floats up
+  OpenKJ's singer screen, with a running tally the singer can see from the stage. No account needed;
+  the buttons appear only when the KJ has cheers switched on, and nobody is offered one for their own
+  performance
 - **Optional accounts.** Sign in and your requests are filed under your name, which lets you:
   - reorder your own pending songs
   - remove a song you changed your mind about

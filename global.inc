@@ -259,6 +259,98 @@ function okj_accepting()
   return $accepting;
 }
 
+// What this OpenKJ build can do. Nothing needed this until cheers: every other
+// optional feature announces itself by the presence of a field in a response
+// this app already fetches, so array_key_exists() on the payload was enough.
+// Cheers are the exception - now_playing.cheers is there whether or not the KJ
+// has them switched on, and /local/capabilities is the only place that says.
+//
+// Session-cached like okj_event_name(), and for the same reason: this reads
+// settings and touches no SQL, so it is about the cheapest call on the API, but
+// it is still a round trip onto OpenKJ's Qt main thread and none of what it
+// reports changes more than once a night. A KJ who flips a switch mid-show is
+// caught by okj_capabilities_forget() below rather than by a short TTL.
+function okj_capabilities()
+{
+  static $caps = null;
+  if ($caps !== null) return $caps;
+
+  if (isset($_SESSION['okj_caps'], $_SESSION['okj_caps_until'])
+      && $_SESSION['okj_caps_until'] > time())
+  {
+    $caps = $_SESSION['okj_caps'];
+    return $caps;
+  }
+
+  $res = okj_get('/local/capabilities');
+  // Deliberately not cached on failure: an unreachable API would otherwise
+  // leave the phone believing every optional feature is off for five minutes
+  // after the KJ's laptop comes back.
+  if (!$res['ok'])
+  {
+    $caps = array();
+    return $caps;
+  }
+
+  $caps = $res['data'];
+  $_SESSION['okj_caps'] = $caps;
+  $_SESSION['okj_caps_until'] = time() + 300;
+  return $caps;
+}
+
+// Precise invalidation for the one case the TTL handles badly: a control we
+// offered came back refused because the KJ turned that feature off since we
+// last looked. Same idea as okj_favorites_note() - fix the cache off a response
+// already paid for instead of polling for the change.
+function okj_capabilities_forget()
+{
+  unset($_SESSION['okj_caps'], $_SESSION['okj_caps_until']);
+}
+
+// The emoji OpenKJ floats up the singer screen for each reaction, mirrored from
+// CheerWidget::glyphFor() in dlgcdg.cpp so a tap on the phone and the glyph on
+// the wall are recognisably the same thing. Written as entities rather than
+// literal UTF-8 so the source file's encoding can't quietly mangle them.
+//
+// This map is also the fallback ordering, for an OpenKJ that supports cheers
+// but doesn't list them in /local/capabilities.
+function okj_cheer_glyphs()
+{
+  return array(
+    'clap'  => array('&#x1F44F;', 'Applause'),
+    'fire'  => array('&#x1F525;', 'On fire'),
+    'heart' => array('&#x1F496;', 'Love it'),
+    'star'  => array('&#x2B50;',  'Star'),
+    'party' => array('&#x1F389;', 'Party'),
+  );
+}
+
+function okj_cheers_enabled()
+{
+  $caps = okj_capabilities();
+  return !empty($caps['supportsCheers']);
+}
+
+// The API hands over its own reaction vocabulary precisely so clients lay out
+// buttons for what this build accepts - anything else is rejected as "Unknown
+// reaction". One we have no glyph for is a reaction a newer OpenKJ knows about
+// and we don't, so it is skipped rather than drawn as a blank button.
+function okj_cheer_reactions()
+{
+  $glyphs = okj_cheer_glyphs();
+  $caps = okj_capabilities();
+  $listed = (isset($caps['cheerReactions']) && is_array($caps['cheerReactions']))
+    ? $caps['cheerReactions']
+    : array_keys($glyphs);
+
+  $reactions = array();
+  foreach ($listed as $reaction)
+  {
+    if (isset($glyphs[$reaction])) $reactions[$reaction] = $glyphs[$reaction];
+  }
+  return $reactions;
+}
+
 
 /* ------------------------------------------------------------------ *
  * Output helpers
@@ -370,6 +462,10 @@ function siteheader()
 //              within the KJ's alert window. Fanned out to every subscriber
 //              because the stream carries no identity, so the filtering by name
 //              below is what makes it the singer's own alert.
+//   "cheer"  - the applause tally for the song being sung, batched every 250ms
+//              while the room is tapping. Unlike "queue" this one carries the
+//              value rather than signalling a re-render, because it fires far
+//              too often to spend an API call on.
 //
 // Site-wide, from sitefooter(), rather than from the queue page: a singer is
 // most likely to be searching for their next song when their turn comes round,
@@ -434,6 +530,29 @@ function okj_event_stream_script()
       var el = document.getElementById("queue-target");
       if (el) { htmx.trigger(el, "queue-changed"); }
     }, 400);
+  });
+
+  stream.addEventListener("cheer", function (event) {
+    // Only the rotation has a tally to move, and only while something is
+    // playing - everywhere else this is a no-op, the way the "queue" handler
+    // above is. Nothing is re-fetched: the frame carries the total outright,
+    // which is the whole reason cheers get their own frame instead of riding a
+    // queue snapshot. They arrive orders of magnitude more often than the
+    // rotation changes, and a re-render per batch would put an ovation onto
+    // OpenKJ\'s main thread.
+    var value = document.getElementById("cheer-count-value");
+    if (!value) return;
+
+    var frame;
+    try { frame = JSON.parse(event.data); } catch (e) { return; }
+    var total = parseInt(frame.total, 10);
+    if (!(total > 0)) return;
+
+    // Authoritative, and it overwrites whatever this phone counted optimistically
+    // for its own taps. counts (the per-reaction breakdown) is for the singer
+    // screen\'s glyphs; there is nothing to draw with it here.
+    value.textContent = total;
+    document.getElementById("cheer-count").hidden = false;
   });
 
   stream.addEventListener("upnext", function (event) {

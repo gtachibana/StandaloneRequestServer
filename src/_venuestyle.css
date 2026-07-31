@@ -426,6 +426,57 @@ p.hint,
   background: transparent;
 }
 
+/* Applause for whoever is at the mic. Sits at the bottom of the now-playing
+   box, under the singer's own controls when they're the one singing - in which
+   case the tally is all that's left here. */
+.cheer-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.cheer-count {
+  font-size: smaller;
+  font-weight: 700;
+  color: var(--nc-lk-1);
+  /* Pushes the buttons to the far edge, the way .key-label does above. */
+  margin-right: auto;
+}
+/* The UA rule would be enough today, but only because nothing sets a display
+   on this - make the hidden-at-zero state not depend on that staying true. */
+.cheer-count[hidden] {
+  display: none;
+}
+.cheer-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+button.cheer {
+  min-width: 1%;
+  padding: 0.3rem 0.6rem;
+  font-size: 1.3rem;
+  line-height: 1;
+  border-color: var(--nc-bg-3);
+}
+/* The tap's only acknowledgement. The request is fire-and-forget and the count
+   beside it is corrected from the event stream, so this is what tells the
+   thumb it landed. */
+button.cheer.pop {
+  animation: cheerPop 300ms ease;
+}
+@keyframes cheerPop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.35); }
+  100% { transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  button.cheer.pop {
+    animation: none;
+  }
+}
+
 ol.queue-list {
   list-style: decimal;
   padding-left: 1.5rem;
