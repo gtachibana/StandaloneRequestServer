@@ -458,6 +458,8 @@ function siteheader()
 //   "queue"  - JSON, not markup, so it can't be swapped in directly. It is used
 //              purely as a "something moved, re-render" signal, which keeps the
 //              rotation server-rendered exactly as before.
+//   "tick"   - the countdowns moved and nothing else did. Deliberately ignored;
+//              see the ?deltas=1 note below.
 //   "upnext" - the API's own edge detection, one frame per singer as they come
 //              within the KJ's alert window. Fanned out to every subscriber
 //              because the stream carries no identity, so the filtering by name
@@ -488,7 +490,29 @@ function okj_event_stream_script()
   // and it is the only setting that doesn't require publishing port 5050
   // somewhere a phone can reach. Don't "simplify" the rtrim away: for the "/"
   // case it is what keeps this from becoming a protocol-relative "//local/...".
-  $url = json_encode(rtrim($base, '/') . '/local/events');
+  //
+  // ?deltas=1 opts into the API's smaller refresh frames. Without it, OpenKJ
+  // pushes a whole snapshot to every subscriber every 20s whether or not the
+  // show moved - and since a "queue" frame makes this page re-render, that was
+  // /local/user/me + /local/queue per phone per 20s onto OpenKJ's Qt main
+  // thread, faster than the fallback poll it was supposed to be replacing. With
+  // it, "queue" arrives only when something actually changed; a tick where only
+  // the countdowns moved comes as a "tick" frame and one where nothing moved as
+  // an SSE comment, and neither wakes this page at all.
+  //
+  // Nothing listens for "tick" - EventSource drops an event with no listener,
+  // so ignoring it costs a handler we'd have to write rather than an API call
+  // we'd have to make. What it carries is wait_seconds keyed by request id, and
+  // applying that here would mean re-implementing okj_fmt_wait() in JS to write
+  // a number the rotation already rounds to the nearest minute. The estimates
+  // instead go stale until the next real change or the $queueStreamPollSeconds
+  // poll, which is the only page that shows them anyway.
+  //
+  // Hardcoded rather than read from /local/capabilities (queueDeltaQueryParam),
+  // the same way the path itself is: an OpenKJ predating deltas ignores an
+  // unknown query parameter and keeps sending full frames, so the cost of
+  // guessing wrong is the behaviour we already had.
+  $url = json_encode(rtrim($base, '/') . '/local/events?deltas=1');
 
   // Matched against the frame's singer name the way okj_entry_is_mine() does
   // it, folded here so the comparison in JS stays a plain ===. The flags matter

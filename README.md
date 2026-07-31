@@ -71,10 +71,12 @@ Two ways to satisfy that:
   of** (see the warning below).
 
 Left empty, the rotation just re-polls every `$queuePollSeconds`. With it set, the poll drops to the
-much slower `$queueStreamPollSeconds` and stays on only as a safety net. An OpenKJ too old to have
-the stream route answers 404, which shuts the subscriber down for good, so those builds quietly fall
-back to that poll on their own — as does a same-origin setup whose proxy rule isn't in place yet, so
-**add the rule before flipping the setting** or you'll land on the 60s poll instead of the 10s one.
+much slower `$queueStreamPollSeconds` and stays on only as a safety net — the stream redraws the
+rotation the moment anything moves, and the poll is what keeps the turn estimates counting down in
+between. An OpenKJ too old to have the stream route answers 404, which shuts the subscriber down for
+good, so those builds quietly fall back to that poll on their own — as does a same-origin setup whose
+proxy rule isn't in place yet, so **add the rule before flipping the setting** or you'll land on the
+60s poll instead of the 10s one.
 
 ### Exposing the stream
 
@@ -113,12 +115,14 @@ Worth adding on top:
   lock every phone in the room out. Every new connection also runs a queue query on OpenKJ's Qt main
   thread, so connect-churn shows up as the KJ's UI stuttering. A rule of ~5 requests/minute per IP on
   `/local/events` covers both; Cloudflare's free tier includes enough for this one.
-- **Verify it actually streams.** `curl -N https://songbook.example.com/local/events` should print a
-  `queue` frame immediately, then another every 20s. If it hangs and then dumps everything at once,
-  something in the chain is buffering.
+- **Verify it actually streams.** `curl -N 'https://songbook.example.com/local/events?deltas=1'`
+  should print a `queue` frame immediately, then something every 20s — a `tick` frame while a show is
+  running, or a bare `: keepalive` comment while nothing is moving. (`?deltas=1` is what the phones
+  ask for; without it every one of those 20s beats is a full snapshot instead.) If it hangs and then
+  dumps everything at once, something in the chain is buffering.
 - **Check the idle timeout.** Cloudflare drops a proxied connection that goes quiet for ~100s. The
-  API's 20s keepalive snapshot stays well inside that, which is what keeps the stream alive — if you
-  put something else in front, keep its read timeout above 20s.
+  API writes something every 20s no matter how quiet the room is, which is what keeps the stream
+  alive — if you put something else in front, keep its read timeout above 20s.
 
 ### Configuring OpenKJ
 
