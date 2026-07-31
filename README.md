@@ -124,6 +124,32 @@ Worth adding on top:
   API writes something every 20s no matter how quiet the room is, which is what keeps the stream
   alive — if you put something else in front, keep its read timeout above 20s.
 
+### Rate limits and client addresses
+
+OpenKJ rate-limits two things per client: cheer taps, and failed logins (five in a row locks that
+client out for five minutes). "Per client" means per address the API was called from — and this app
+calls it server-side for everybody, so out of the box the whole venue counts as one client. A room
+mid-ovation throttles itself, and one person mistyping their password locks out every singer and the
+KJ.
+
+The fix is a chain of forwarded addresses, and each hop only believes the one in front of it if it
+was told to:
+
+- **This app → OpenKJ.** Every call carries `X-Forwarded-For`. OpenKJ reads it when the webserver is
+  loopback to it, which is the usual single-machine setup and needs no configuration. If the
+  webserver is a different box, add its address (comma separated, if more than one) to
+  `embeddedApiTrustedProxies` under `[localMode]` in OpenKJ's `openkj.ini` — in the app data
+  directory on Windows and macOS, `~/.config/OpenKJ/OpenKJ.conf` on Linux. There's no field for it in
+  the settings dialog, deliberately.
+- **Proxy → this app.** `$trustedProxies` in `settings.inc` lists proxies whose `CF-Connecting-IP` or
+  `X-Forwarded-For` this app will believe. Loopback is always believed, so a Cloudflare Tunnel
+  connector or nginx on the same machine already works; the setting is for one that reaches the
+  webserver over the network.
+
+Leave them unset and you get the old behaviour, which is a nuisance and not a hole. Set them wrong —
+naming a hop that doesn't overwrite the header, or one anybody can reach — and the lockout stops
+meaning anything, since an attacker can just claim a fresh address per guess.
+
 ### Configuring OpenKJ
 
 You need a build of OpenKJ with Local Mode (the `gtachibana/OpenKJ` fork). Set the app mode to **Local
