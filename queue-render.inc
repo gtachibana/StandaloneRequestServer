@@ -112,6 +112,100 @@ function okj_skip_control($nowPlaying)
     </div>';
 }
 
+// Applause for the singer at the mic. No account needed - anyone in the room
+// with the page open can tap - so this is the one control here that renders for
+// a signed-out phone too.
+//
+// Support is gated twice, because the two failure modes look nothing alike. An
+// OpenKJ predating cheers has no `cheers` key in now_playing at all, which is
+// the free check and the same gate key_change and is_playing get. A build that
+// has them but whose KJ switched them off still reports the tally, so only
+// /local/capabilities can say - hence okj_cheers_enabled().
+//
+// "You can't cheer yourself" is this app's manners, not the API's rule:
+// /local/cheer takes no token, so nothing stops a determined singer cheering
+// themselves with curl. The point is only that we don't hand somebody a button
+// to applaud their own performance. It follows that a singer who never signed
+// in gets the buttons anyway - the stream and the rotation both identify people
+// by name, and an anonymous phone has no name to match.
+//
+// They do get the tally. It is the reason OpenKJ carries it in now_playing at
+// all: the singer is facing the room with the screen behind them, and this is
+// the only way they see the room reacting.
+function okj_cheer_bar($nowPlaying, $user)
+{
+  if (!array_key_exists('cheers', $nowPlaying)) return;
+  if (!okj_cheers_enabled()) return;
+
+  $reactions = okj_cheer_reactions();
+  if (!count($reactions)) return;
+
+  $total = (int)$nowPlaying['cheers'];
+  $mine = okj_entry_is_mine($nowPlaying, $user);
+
+  echo '<div id="cheer-bar" class="cheer-bar">';
+
+  // The badge OpenKJ draws in the corner of the singer screen, mirrored: clap
+  // glyph plus the running total. Hidden at zero rather than reading "0" -
+  // nobody needs telling that the room hasn't reacted yet. The id is what the
+  // /local/events "cheer" handler writes into, so the count follows the whole
+  // room live instead of waiting for the next queue poll.
+  echo '<span class="cheer-count" id="cheer-count" title="Cheers for this song"'
+    . ($total > 0 ? '' : ' hidden') . '>&#x1F44F; <b id="cheer-count-value">'
+    . $total . '</b></span>';
+
+  if ($mine)
+  {
+    echo '</div>';
+    return;
+  }
+
+  echo '<div class="cheer-buttons">';
+  foreach ($reactions as $reaction => $glyph)
+  {
+    // Fire and forget: hx-swap="none", because there is nothing worth swapping
+    // and nothing worth reporting. A throttled tap is meant to be swallowed, a
+    // rejection can only be a stale capabilities cache (which cheer-action.php
+    // fixes for the next render), and an unreachable API is already announced
+    // by the rotation around this. What that buys is the smallest request in
+    // the app for what is by far its most-tapped button.
+    //
+    // The count is bumped locally on the way out so the button feels alive even
+    // with no event stream configured. It is optimistic and can run a little
+    // ahead of the truth - the next "cheer" frame (250ms) or queue poll
+    // overwrites it with the room's real total.
+    //
+    // All four attributes inherited from #queue-target have to go: hx-select
+    // would hunt for a #queue-target in an empty body, and the inherited
+    // hx-sync="this:replace" would have every tap and the queue's own poll
+    // aborting each other. "queue all" rather than replace because each tap is
+    // a distinct cheer that should reach the API, not a request for the latest
+    // state that a newer one supersedes.
+    echo '<button type="button" class="cheer"
+      title="' . h($glyph[1]) . '"
+      aria-label="' . h($glyph[1]) . '"
+      hx-post="/cheer-action.php"
+      hx-target="this"
+      hx-swap="none"
+      hx-select="unset"
+      hx-sync="this:queue all"
+      hx-vals=\'' . hxvals(array('reaction' => $reaction)) . '\'
+      hx-on:click="
+        const count = htmx.find(\'#cheer-count\');
+        const value = htmx.find(\'#cheer-count-value\');
+        if (value) {
+          value.textContent = (parseInt(value.textContent, 10) || 0) + 1;
+          count.hidden = false;
+        }
+        this.classList.remove(\'pop\');
+        void this.offsetWidth;
+        this.classList.add(\'pop\');
+      "
+      >' . $glyph[0] . '</button>';
+  }
+  echo '</div></div>';
+}
+
 function okj_entry_is_mine($entry, $user)
 {
   if (!$user['authenticated']) return false;
@@ -326,6 +420,11 @@ function renderQueueFragment($actionError = '')
         okj_key_controls($nowPlaying['key_change']);
       okj_skip_control($nowPlaying);
     }
+    // Last in the box, so the singer's own controls stay where they were and
+    // the tally sits under them. Not gated on is_playing: OpenKJ banks a cheer
+    // that lands in the gap after a song ends against the song that just
+    // finished, which is exactly where the applause was aimed.
+    okj_cheer_bar($nowPlaying, $user);
     echo '</section>';
   }
 
