@@ -504,6 +504,54 @@ function okj_cheers_enabled()
   return !empty($caps['supportsCheers']);
 }
 
+// Whether to offer the YouTube tab at all. The capability is two conditions on
+// OpenKJ's side, not one: the KJ's setting *and* a yt-dlp that actually runs.
+// That is the whole reason to consult it rather than a switch in settings.inc -
+// a missing or broken yt-dlp takes the tab off the phones instead of leaving a
+// search box whose every result fails to queue.
+function okj_youtube_enabled()
+{
+  $caps = okj_capabilities();
+  return !empty($caps['supportsYoutubeRequests']);
+}
+
+// The cap OpenKJ will enforce on the request anyway. Fetched so a video over it
+// can be marked before the singer taps it, rather than after a round trip that
+// was always going to be refused. 0 means this build didn't say, in which case
+// nothing is pre-filtered and OpenKJ remains the only judge.
+function okj_youtube_max_duration()
+{
+  $caps = okj_capabilities();
+  return isset($caps['youtubeMaxDurationSecs']) ? (int)$caps['youtubeMaxDurationSecs'] : 0;
+}
+
+// Which of these videos OpenKJ already has on disk, so a result can say whether
+// it will start immediately or has to download first.
+//
+// One POST for the whole page - the route takes the batch precisely so a page of
+// results doesn't become a page of round trips onto OpenKJ's Qt main thread. It
+// checks at most 50 ids and ignores the rest, so the slice matches. A video
+// nobody has ever requested appears in neither list, which is the ordinary case
+// and reads as "will download when requested".
+function okj_youtube_cached_status($videoIds)
+{
+  $status = array('ready' => array(), 'pending' => array());
+  $videoIds = array_slice(array_values(array_unique($videoIds)), 0, 50);
+  if (!count($videoIds)) return $status;
+
+  $res = okj_post('/local/youtube/cached', array('videoIds' => $videoIds));
+  // Older OpenKJ builds 404 this route. Badging is decoration - losing it costs
+  // the singer nothing, so a failure just means no badges.
+  if (!$res['ok']) return $status;
+
+  foreach (array('ready', 'pending') as $bucket)
+  {
+    if (!isset($res['data'][$bucket]) || !is_array($res['data'][$bucket])) continue;
+    foreach ($res['data'][$bucket] as $videoId) $status[$bucket][(string)$videoId] = true;
+  }
+  return $status;
+}
+
 // The API hands over its own reaction vocabulary precisely so clients lay out
 // buttons for what this build accepts - anything else is rejected as "Unknown
 // reaction". One we have no glyph for is a reaction a newer OpenKJ knows about
@@ -834,8 +882,17 @@ function navbar($active = 'songbook')
 
   echo "<header><h1><a href='/' hx-boost='true'>" . h($eventName) . " Songbook</a></h1>
     <nav hx-boost='true'>";
-  $links = array('/' => 'Search', '/browse.php' => 'Browse', '/queue.php' => 'Rotation');
-  $keys = array('/' => 'songbook', '/browse.php' => 'browse', '/queue.php' => 'queue');
+  $links = array('/' => 'Search', '/browse.php' => 'Browse');
+  $keys = array('/' => 'songbook', '/browse.php' => 'browse');
+  // Next to the songbook it supplements, and only when OpenKJ says it will
+  // accept a video - a tab that can only ever fail is worse than no tab.
+  if (okj_youtube_enabled())
+  {
+    $links['/youtube.php'] = 'YouTube';
+    $keys['/youtube.php'] = 'youtube';
+  }
+  $links['/queue.php'] = 'Rotation';
+  $keys['/queue.php'] = 'queue';
   // Favorites and history belong to an account, so the links are meaningless
   // signed out.
   if ($user['authenticated'])
@@ -1014,12 +1071,42 @@ function songButtons($songs, $accepting)
   }
 }
 
-function reqFormContent($songid = "", $artist = "", $title = "")
+function reqFormContent($songid = "", $artist = "", $title = "", $videoId = "", $durationSeconds = 0)
 {
   $user = okj_user();
   echo "<input type=\"hidden\" name=\"songid\" value=\"" . h($songid) . "\">
   <input type=\"hidden\" name=\"artist\" value=\"" . h($artist) . "\">
   <input type=\"hidden\" name=\"title\" value=\"" . h($title) . "\">";
+
+  // A YouTube request carries the video instead of a library song id, because
+  // there is no library row to point at yet - OpenKJ creates one as a side
+  // effect of accepting the request. The duration rides along for the same
+  // reason it does on a library result: nothing here can look it up again, and
+  // OpenKJ wants it to refuse an over-long video up front.
+  if ($videoId !== '')
+  {
+    echo "<input type=\"hidden\" name=\"videoid\" value=\"" . h($videoId) . "\">
+    <input type=\"hidden\" name=\"durationSeconds\" value=\"" . (int)$durationSeconds . "\">";
+  }
+
+  // Unlike a library song, a video cannot be requested by a guest at all:
+  // /local/request/youtube authenticates before anything else. Saying so here
+  // beats a name box whose submission is refused.
+  if ($videoId !== '' && !$user['authenticated'])
+  {
+    echo "<p>Requesting from YouTube needs an account, so the download can be
+      tied to whoever asked for it.</p>
+      <div class=\"req-modal-buttons\">
+        <button
+          id=\"cancel-song-request\"
+          type=\"button\"
+          class=\"close\"
+          hx-on:click=\"htmx.trigger('#req-modal', 'remove-req-modal');\"
+          >Close</button>
+        <a class=\"button\" href=\"/account.php\" hx-boost=\"true\">Sign in</a>
+      </div>";
+    return;
+  }
 
   if ($user['authenticated'])
   {

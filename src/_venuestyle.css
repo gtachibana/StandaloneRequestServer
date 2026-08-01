@@ -329,6 +329,127 @@ p.hint,
 }
 
 
+/* YouTube results. Unlike a songbook result - which is one button and nothing
+   else - a video needs its thumbnail and its channel visible before anyone
+   commits to it, because "Purple Rain (Karaoke Version)" is the title of about
+   forty different uploads of varying quality. Hence a two-column row: preview
+   on the left, title and provenance on the right. */
+.yt-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.yt-body {
+  flex: 1;
+  min-width: 0;
+}
+.yt-body button.result {
+  margin-bottom: 0.2rem;
+}
+
+/* Fixed width so the titles beside them line up down the page, and a fixed 16:9
+   box so the row doesn't jump when the <img> loads or is replaced by the
+   iframe. */
+.yt-media {
+  flex: 0 0 auto;
+  width: 7.5rem;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--nc-brd-rad);
+  overflow: hidden;
+  background: var(--nc-bg-3);
+}
+.yt-media:empty {
+  display: none;
+}
+.yt-thumb {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  overflow: hidden;
+}
+.yt-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* mqdefault is already 16:9, so this only guards against a future thumbnail
+     that isn't - it crops rather than letterboxing inside the box. */
+  object-fit: cover;
+}
+.yt-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.6rem;
+  color: var(--nc-lk-tx);
+  /* The play glyph has to read over a thumbnail of unknown brightness, so it
+     carries its own scrim rather than trusting the image under it. */
+  background: rgb(0 0 0 / 35%);
+  text-shadow: 0 0 6px rgb(0 0 0 / 80%);
+}
+.yt-thumb:focus-visible .yt-play,
+.yt-thumb:hover .yt-play {
+  background: rgb(0 0 0 / 15%);
+}
+/* The iframe replaces the thumbnail in the same box, so the row keeps its
+   height and the list doesn't reflow under the singer's thumb. */
+.yt-media.playing .yt-thumb {
+  display: none;
+}
+.yt-media iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+.yt-meta {
+  margin: 0;
+  font-size: smaller;
+  color: var(--nc-tx-3);
+}
+.yt-channel {
+  overflow-wrap: anywhere;
+}
+.yt-badge {
+  display: inline-block;
+  font-size: smaller;
+  text-transform: uppercase;
+  border: 1px solid currentcolor;
+  border-radius: var(--nc-brd-rad);
+  padding: 0 0.3rem;
+  white-space: nowrap;
+}
+.yt-badge.ready {
+  color: var(--nc-lk-1);
+}
+.yt-badge.too-long {
+  color: var(--nc-error);
+}
+.yt-results button.result[disabled] {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* Wide enough for the thumbnail to be worth its space; below that the row is
+   mostly picture and the title has nowhere to go. */
+@media (width <= 24rem) {
+  .yt-media {
+    width: 5.5rem;
+  }
+  .yt-play {
+    font-size: 1.2rem;
+  }
+}
+
+
 /* Browse by letter */
 .browse-by {
   margin-bottom: 0.75rem;
@@ -534,6 +655,17 @@ ol.queue-list {
   border: 1px solid var(--nc-tx-3);
   border-radius: var(--nc-brd-rad);
   padding: 0 0.3rem;
+}
+
+/* A queued song whose file is still coming down off YouTube. Sits in the meta
+   line, which is nowrap for the length and key, so this gets its own line
+   rather than pushing those off the row. */
+.media-state {
+  display: block;
+  white-space: normal;
+}
+.media-state.failed {
+  color: var(--nc-error);
 }
 
 .mine-controls {

@@ -239,6 +239,34 @@ function okj_own_song_controls($entry, $isFirst, $isLast, $canMove)
   echo '</span>';
 }
 
+// Whether the file behind a queued song is actually on disk yet. Only songs
+// backed by a YouTube request carry these keys - a library song is on disk by
+// definition, and an OpenKJ too old for the feature sends neither - so a row
+// without them renders exactly as it always did.
+//
+// Returns markup rather than echoing it, like okj_key_change(), because it is
+// composed into a meta line being built. "ready" says nothing on purpose: every
+// other row in the list is ready too, and a badge on all of them is noise.
+function okj_media_state($entry)
+{
+  if (!array_key_exists('media_state', $entry)) return '';
+
+  switch ($entry['media_state'])
+  {
+    case 'pending':
+      return '<span class="media-state pending">queued to download</span>';
+    case 'fetching':
+      $progress = isset($entry['media_progress']) ? (int)$entry['media_progress'] : 0;
+      return '<span class="media-state pending">downloading'
+        . ($progress > 0 ? ' ' . $progress . '%' : '') . '</span>';
+    case 'failed':
+      // Worth interrupting for: the song is in the rotation and will not play,
+      // and the singer is the only one who can pick something else.
+      return '<span class="media-state failed">download failed &mdash; pick another</span>';
+  }
+  return '';
+}
+
 // The singer's own songs, pulled out of the rotation into a list that contains
 // nothing else. The reorder arrows used to live on the rotation rows, where an
 // up arrow sitting in a list of everybody's songs reads as "move me up the
@@ -277,7 +305,8 @@ function okj_render_my_queue($entries, $user)
     echo '<li class="queue-entry mine">';
     echo '<span class="song">' . h((isset($entry['artist']) ? $entry['artist'] : '') . ' - ' . (isset($entry['title']) ? $entry['title'] : '')) . '</span>';
     echo '<span class="meta">' . okj_fmt_duration(isset($entry['duration_seconds']) ? $entry['duration_seconds'] : 0)
-      . okj_key_change(isset($entry['key_change']) ? $entry['key_change'] : 0) . '</span>';
+      . okj_key_change(isset($entry['key_change']) ? $entry['key_change'] : 0)
+      . okj_media_state($entry) . '</span>';
     okj_own_song_controls($entry, $i === 0, $i === $last, $canMove);
     echo '</li>';
   }
@@ -309,7 +338,8 @@ function okj_render_queue_entries($entries, $user)
     if (!empty($entry['singer_paused'])) echo ' <span class="away-tag">away</span>';
     echo '<span class="song">' . h((isset($entry['artist']) ? $entry['artist'] : '') . ' - ' . (isset($entry['title']) ? $entry['title'] : '')) . '</span>';
     echo '<span class="meta">' . okj_fmt_duration(isset($entry['duration_seconds']) ? $entry['duration_seconds'] : 0)
-      . okj_key_change(isset($entry['key_change']) ? $entry['key_change'] : 0) . '</span>';
+      . okj_key_change(isset($entry['key_change']) ? $entry['key_change'] : 0)
+      . okj_media_state($entry) . '</span>';
     // Absent on OpenKJ builds older than the ETA fields; the row just omits it.
     if ($firstForSinger && array_key_exists('turns_until', $entry))
     {
