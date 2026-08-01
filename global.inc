@@ -17,6 +17,24 @@ if (isset($venueTimezone) && $venueTimezone !== '')
 // output, which is also why every header() call has to precede siteheader().
 if (session_status() === PHP_SESSION_NONE) session_start();
 
+// The token also gets a cookie of its own, because the session cannot keep it.
+// PHP's session cookie has no expiry by default, so it dies when the phone's
+// browser does, and the server-side data behind it is reaped after
+// session.gc_maxlifetime - 24 minutes on a stock install, and that is a php.ini
+// setting that doesn't travel with this repo. Meanwhile the OpenKJ token is good
+// for 30 days and slides forward every time it is used, so the credential outlives
+// its container by a wide margin. Carrying the token separately also keeps the
+// rest of the session on its own short life: the favorites id set and the
+// capabilities cache want their 300s TTLs, not a year.
+define('OKJ_TOKEN_COOKIE', 'okj_token');
+// Chrome and Firefox clamp any cookie expiry past 400 days, so this is the real
+// ceiling whatever number is written here. It doesn't need to be bigger: the
+// cookie is re-issued on every request, so the clock restarts at each visit and
+// only an absence longer than the cap can run it out.
+define('OKJ_TOKEN_COOKIE_DAYS', 400);
+
+okj_token_cookie_sync();
+
 
 /* ------------------------------------------------------------------ *
  * OpenKJ Local Mode API client
@@ -193,6 +211,88 @@ function okj_token()
   return isset($_SESSION['okj_token']) ? $_SESSION['okj_token'] : '';
 }
 
+// Shared by every write below, so the flags can't drift apart between them - a
+// cookie deleted with different attributes than it was set with is not deleted.
+// Secure only when the request really is HTTPS: setting it on a plain-http venue
+// would make the browser drop the cookie and nobody would stay signed in. The
+// proxy's word on that is taken only from a proxy we already trust, the same test
+// okj_client_address() applies to the address headers.
+function okj_token_cookie_options($expires)
+{
+  $https = (!empty($_SERVER['HTTPS']) && strtolower($_SERVER['HTTPS']) !== 'off');
+  if (!$https
+    && isset($_SERVER['HTTP_X_FORWARDED_PROTO'])
+    && okj_proxy_is_trusted(isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : ''))
+  {
+    $https = (strtolower(trim($_SERVER['HTTP_X_FORWARDED_PROTO'])) === 'https');
+  }
+
+  return array(
+    'expires' => $expires,
+    'path' => '/',
+    'secure' => $https,
+    // Nothing in this app reads the token from JS, and the event stream carries no
+    // credential at all, so there is no reason for the page to be able to see it.
+    'httponly' => true,
+    // Lax rather than Strict: a singer following the venue's QR code or a link from
+    // a group chat arrives cross-site, and Strict would show them signed out.
+    'samesite' => 'Lax',
+  );
+}
+
+function okj_remember_token($token)
+{
+  if (headers_sent()) return;
+  setcookie(OKJ_TOKEN_COOKIE, $token, okj_token_cookie_options(time() + (OKJ_TOKEN_COOKIE_DAYS * 86400)));
+}
+
+// Drops the token everywhere it lives. The headers_sent() case is real: okj_user()
+// discovers a rejected token in the middle of a render, long after the point where
+// a cookie could still be written. It leaves a note instead, which the next
+// request's okj_token_cookie_sync() acts on - otherwise the dead token would be
+// rehydrated from the cookie and re-validated against the API forever.
+function okj_forget_token()
+{
+  unset($_SESSION['okj_token']);
+  if (headers_sent())
+  {
+    $_SESSION['okj_token_stale'] = true;
+    return;
+  }
+  unset($_SESSION['okj_token_stale'], $_COOKIE[OKJ_TOKEN_COOKIE]);
+  setcookie(OKJ_TOKEN_COOKIE, '', okj_token_cookie_options(time() - 3600));
+}
+
+function okj_store_token($token)
+{
+  $_SESSION['okj_token'] = $token;
+  unset($_SESSION['okj_token_stale']);
+  okj_remember_token($token);
+}
+
+// Runs on include, before any page has emitted a byte, because all three branches
+// may need to write a cookie.
+function okj_token_cookie_sync()
+{
+  if (!empty($_SESSION['okj_token_stale']))
+  {
+    okj_forget_token();
+    return;
+  }
+
+  $token = okj_token();
+  if ($token === '' && isset($_COOKIE[OKJ_TOKEN_COOKIE]) && $_COOKIE[OKJ_TOKEN_COOKIE] !== '')
+  {
+    $token = $_COOKIE[OKJ_TOKEN_COOKIE];
+    $_SESSION['okj_token'] = $token;
+  }
+
+  // Rolling refresh: every visit pushes the expiry back out to the full window, so
+  // a singer who turns up monthly restarts the clock ten months before the browser's
+  // cap could ever matter. Costs one Set-Cookie header and no API call.
+  if ($token !== '') okj_remember_token($token);
+}
+
 // Cached for the life of the request: every page that renders nav needs it.
 function okj_user($refresh = false)
 {
@@ -205,10 +305,19 @@ function okj_user($refresh = false)
   if ($token === '') return $user;
 
   $res = okj_get('/local/user/me', array('token' => $token));
+  // An unreachable API has said nothing about this token, so it keeps it. The
+  // distinction didn't matter while the token lived in a browser-session cookie,
+  // but it does now: discarding it here would mean an OpenKJ restart mid-show
+  // permanently signed out every phone in the room, each of them needing a
+  // password nobody has typed since they set it. The singer sees signed-out for
+  // as long as the outage lasts and is back afterwards without doing anything.
+  if ($res['status'] === 0) return $user;
+
   if (!$res['ok'] || empty($res['data']['authenticated']))
   {
-    // Token expired or was revoked on the OpenKJ side.
-    unset($_SESSION['okj_token']);
+    // Token expired or was revoked on the OpenKJ side - the latter is now a real
+    // path, since a KJ resetting a forgotten password ends that account's sessions.
+    okj_forget_token();
     return $user;
   }
 
