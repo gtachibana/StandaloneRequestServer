@@ -72,6 +72,40 @@ $historyLimit = 100;
 // Leave empty to disable the stream and poll only.
 $openkjEventStreamBase = '/';
 
+// --- YouTube requests -------------------------------------------------
+//
+// These only matter when OpenKJ has YouTube requests switched on *and* its
+// yt-dlp is working: the tab is gated on /local/capabilities'
+// supportsYoutubeRequests, which reports both. Nothing below turns the feature
+// on - that switch is OpenKJ's, in Settings > YouTube.
+//
+// OpenKJ never searches YouTube itself; it only accepts a video a singer has
+// already picked. So this app does the searching, in one of two ways:
+//
+// Empty key (the default) reads the ordinary youtube.com results page. No key,
+// no quota, and no signup - but it is scraping, so a YouTube redesign can break
+// it (the parsing is all in youtube-search.inc). Setting a Google Cloud
+// YouTube Data API v3 key here switches to the official API instead. That is
+// the sturdier route, at the cost of a quota that is tighter than it sounds:
+// each search costs 100 of 10,000 units a day, so roughly a hundred searches
+// for the entire venue per day, shared by every phone in the room.
+$youtubeApiKey = '';
+
+// Results per search. Kept short deliberately - this is a phone screen, and the
+// karaoke track a singer wants is almost always in the first handful.
+$youtubeSearchLimit = 15;
+
+// Seconds to wait on YouTube. Longer than $openkjTimeout on purpose: that one
+// is short because a slow call stalls the KJ's UI, and this one reaches the
+// public internet and stalls nothing but the singer's own page.
+$youtubeSearchTimeout = 8;
+
+// Silently appended to whatever the singer typed, unless their query already
+// contains it. Without this, searching "purple rain" returns the studio
+// recording - which is requestable, and useless to sing over. Set to '' to
+// search for exactly what they typed.
+$youtubeSearchSuffix = 'karaoke';
+
 // How often, in seconds, phones re-poll the queue view. The stream carries
 // updates when it is configured, so the poll is only a safety net there - which
 // is why it is much slower. Older OpenKJ builds have no /local/events and the
