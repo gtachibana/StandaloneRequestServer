@@ -9,6 +9,13 @@
 # songbook publishes on 80 rather than the 8080 that docker-compose.yml uses
 # for local development. Nothing else may hold :80 (the old
 # openkj-request-server container did).
+
+# Named apart from docker-compose.yml, which lives in the same directory and so
+# would otherwise share its project - and its default network. Whichever file
+# created that network first would decide its subnet, and the dev stack's
+# unpinned one would leave $trustedProxies matching nothing.
+name: songbook
+
 services:
   songbook:
     image: php:8.0-apache
