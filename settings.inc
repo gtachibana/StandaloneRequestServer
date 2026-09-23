@@ -48,10 +48,10 @@ $openkjTimeout = 4;
 // anything else on the venue LAN hitting host :80 directly, which is the
 // tradeoff accepted here.
 //
-// Pinned to the gateway of the standalonerequestserver_default network. If that
-// network is ever recreated onto a different subnet, this silently stops
+// Pinned to the gateway of the songbook_default network, whose subnet
+// docker-compose.tunnel.yml fixes. If that ever changes, this silently stops
 // matching and the room goes back to sharing one bucket - check with
-// `docker network inspect standalonerequestserver_default`.
+// `docker network inspect songbook_default`.
 $trustedProxies = array('172.18.0.1');
 
 // Whether to believe CF-Connecting-IP from a trusted proxy. Only safe when that
