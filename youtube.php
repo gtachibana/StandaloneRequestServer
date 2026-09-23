@@ -22,6 +22,11 @@ $input_query = trim(preg_replace('!\s+!', ' ', isset($_GET['q']) ? $_GET['q'] : 
 
 $fragment = okj_is_fragment();
 
+// Searched before a byte is written, because okj_yt_search() lets go of the
+// session lock for the length of the YouTube fetch and has to take it back
+// afterwards - which session_start() can only do while headers are unsent.
+$res = (strlen($input_query) >= 3) ? okj_yt_search($input_query) : null;
+
 if (!$fragment)
 {
   siteheader();
@@ -61,7 +66,7 @@ if (!$user['authenticated'])
     <a href="/account.php" hx-boost="true">sign in or create one</a>.</p>';
 }
 
-if (strlen($input_query) < 3)
+if ($res === null)
 {
   echo '<details open>
     <summary>Not in the songbook?</summary>
@@ -79,8 +84,6 @@ if (strlen($input_query) < 3)
 }
 else
 {
-  $res = okj_yt_search($input_query);
-
   if (!$res['ok'])
   {
     errorBanner($res['error']);
