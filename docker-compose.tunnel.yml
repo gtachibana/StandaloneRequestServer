@@ -1,0 +1,50 @@
+# Production-ish stack: the songbook on host :80 plus the Cloudflare Tunnel
+# connector that fronts it.
+#
+#   docker compose -f docker-compose.tunnel.yml up -d
+#
+# The tunnel's ingress rules live in the Cloudflare Zero Trust dashboard, not
+# here. They currently point singitnow.org / www.singitnow.org at
+# http://host.docker.internal - i.e. port 80 on this machine - which is why
+# songbook publishes on 80 rather than the 8080 that docker-compose.yml uses
+# for local development. Nothing else may hold :80 (the old
+# openkj-request-server container did).
+services:
+  songbook:
+    image: php:8.0-apache
+    container_name: songbook
+    restart: unless-stopped
+    volumes:
+      - .:/var/www/html
+    ports:
+      - 80:80
+    extra_hosts:
+      # OpenKJ's embedded API runs on the Windows host, not in a container.
+      - host.docker.internal:host-gateway
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: songbook_tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      # Set in .env (gitignored) - see .env.example.
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set TUNNEL_TOKEN in .env}
+    depends_on:
+      - songbook
+
+# Pinned rather than left to Docker's auto-allocation. The connector reaches the
+# songbook via host.docker.internal:80 and back in through the published port,
+# so Apache sees this gateway - not loopback - as the peer, and $trustedProxies
+# in settings.inc names it outright to believe CF-Connecting-IP from it. Let the
+# subnet drift and that match silently stops, which fails safe (the whole room
+# shares one rate-limit bucket again) but is invisible until someone notices the
+# lockout misbehaving. This is the subnet Docker had already assigned, so
+# pinning it changes nothing today; it just stops it moving on a network
+# recreate.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
+          gateway: 172.18.0.1
