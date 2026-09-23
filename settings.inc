@@ -17,7 +17,7 @@ $venueTimezone = 'Pacific/Honolulu';
 // Base URL of the OpenKJ Local Mode embedded API. OpenKJ serves this when
 // Settings > app mode is Local Mode and the embedded API is enabled; it
 // defaults to port 5050 bound to 0.0.0.0.
-$openkjApiBase = 'http://127.0.0.1:5050';
+$openkjApiBase = 'http://host.docker.internal:5050';
 
 // Seconds to wait on the API before giving up. The embedded API runs on
 // OpenKJ's Qt main thread, so keep this short - a slow request there is a
@@ -39,7 +39,20 @@ $openkjTimeout = 4;
 // phone chose, and a phone that picks its own address can sidestep the lockout
 // at will. The API in turn only reads what we send when *it* trusts this
 // webserver - loopback, or its own embeddedApiTrustedProxies list.
-$trustedProxies = array();
+// The Cloudflare Tunnel connector runs as a container here, so it does not
+// reach this webserver over loopback: it goes out to host.docker.internal:80
+// and back in through Docker's published port, which rewrites the source to the
+// bridge gateway below. That address is therefore the hop whose X-Forwarded-For
+// we believe - Cloudflare's edge appends the client there and the connector
+// passes it on, so $trustCloudflareHeader can stay off. Note it also covers
+// anything else on the venue LAN hitting host :80 directly, which is the
+// tradeoff accepted here.
+//
+// Pinned to the gateway of the standalonerequestserver_default network. If that
+// network is ever recreated onto a different subnet, this silently stops
+// matching and the room goes back to sharing one bucket - check with
+// `docker network inspect standalonerequestserver_default`.
+$trustedProxies = array('172.18.0.1');
 
 // Whether to believe CF-Connecting-IP from a trusted proxy. Only safe when that
 // proxy really is Cloudflare (a tunnel connector, or Cloudflare-only ingress):
