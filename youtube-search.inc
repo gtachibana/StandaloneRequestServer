@@ -75,9 +75,7 @@ function okj_yt_http_get($url, $timeout)
     )));
     $body = @file_get_contents($url, false, $context);
     if ($body === false) return array('ok' => false, 'body' => '', 'status' => 0, 'error' => 'Could not reach YouTube');
-    $status = 0;
-    if (isset($http_response_header[0]) && preg_match('!HTTP/\S+\s+(\d+)!', $http_response_header[0], $m))
-      $status = (int)$m[1];
+    $status = okj_final_http_status(isset($http_response_header) ? $http_response_header : null);
   }
 
   if ($status < 200 || $status >= 300)
@@ -98,10 +96,14 @@ function okj_yt_parse_clock($text)
 // ISO 8601 durations, which is the form the Data API reports: PT4M15S.
 function okj_yt_parse_iso8601($text)
 {
-  if (!preg_match('/^P(?:\d+D)?T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/', trim((string)$text), $m)) return 0;
-  return ((int)(isset($m[1]) ? $m[1] : 0) * 3600)
-    + ((int)(isset($m[2]) ? $m[2] : 0) * 60)
-    + (int)(isset($m[3]) ? $m[3] : 0);
+  // Days counted, not just tolerated: OpenKJ enforces its length cap on the
+  // duration we send, so reading P1DT2H as two hours would wave a 26-hour video
+  // past both checks.
+  if (!preg_match('/^P(?:(\d+)D)?T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/', trim((string)$text), $m)) return 0;
+  return ((int)(isset($m[1]) ? $m[1] : 0) * 86400)
+    + ((int)(isset($m[2]) ? $m[2] : 0) * 3600)
+    + ((int)(isset($m[3]) ? $m[3] : 0) * 60)
+    + (int)(isset($m[4]) ? $m[4] : 0);
 }
 
 // YouTube writes user-visible strings two ways in the same document -
@@ -244,6 +246,15 @@ function okj_yt_search_scrape($query, $limit, $timeout)
   $renderers = array();
   okj_yt_collect_renderers($data, $renderers);
 
+  // No renderers at all is either a genuinely empty search or a page we didn't
+  // understand - a consent or bot check, or YouTube moving results to a new
+  // renderer type. The empty search announces itself with the "No results found"
+  // promo; anything else is returned as a failure, which isn't cached, rather
+  // than as "nothing on YouTube", which would be cached and repeated back at the
+  // singer for five minutes.
+  if (!count($renderers) && strpos($res['body'], '"backgroundPromoRenderer"') === false)
+    return array('ok' => false, 'videos' => array(), 'error' => "Couldn't read YouTube's results.");
+
   $videos = array();
   $seen = array();
   foreach ($renderers as $renderer)
@@ -304,27 +315,29 @@ function okj_yt_search_api($query, $limit, $key, $timeout)
     'key' => $key,
   ), '', '&', PHP_QUERY_RFC3986);
 
+  // A failure here is a failure of the search, not an empty result: every
+  // duration would stay 0 and every video be dropped below, and an "ok" with no
+  // videos gets cached as "Nothing on YouTube" for five minutes.
   $durationsRes = okj_yt_http_get($videosUrl, $timeout);
-  if ($durationsRes['ok'])
+  if (!$durationsRes['ok']) return array('ok' => false, 'videos' => array(), 'error' => $durationsRes['error']);
+
+  $durations = json_decode($durationsRes['body'], true);
+  if (!is_array($durations) || !isset($durations['items']) || !is_array($durations['items']))
+    return array('ok' => false, 'videos' => array(), 'error' => "Couldn't read YouTube's results.");
+
+  foreach ($durations['items'] as $item)
   {
-    $durations = json_decode($durationsRes['body'], true);
-    if (is_array($durations) && isset($durations['items']) && is_array($durations['items']))
-    {
-      foreach ($durations['items'] as $item)
-      {
-        $videoId = isset($item['id']) ? (string)$item['id'] : '';
-        if (!isset($partial[$videoId])) continue;
-        $partial[$videoId]['durationSeconds'] = okj_yt_parse_iso8601(
-          isset($item['contentDetails']['duration']) ? $item['contentDetails']['duration'] : '');
-      }
-    }
+    $videoId = isset($item['id']) ? (string)$item['id'] : '';
+    if (!isset($partial[$videoId])) continue;
+    $partial[$videoId]['durationSeconds'] = okj_yt_parse_iso8601(
+      isset($item['contentDetails']['duration']) ? $item['contentDetails']['duration'] : '');
   }
 
   $videos = array();
   foreach ($order as $videoId)
   {
-    // A zero duration is a live stream, a premiere, or the videos.list call
-    // having failed. Dropped for the same reason as in the scraper.
+    // A zero duration is a live stream or a premiere. Dropped for the same
+    // reason as in the scraper.
     if ($partial[$videoId]['durationSeconds'] <= 0) continue;
     $videos[] = $partial[$videoId];
     if (count($videos) >= $limit) break;
@@ -374,9 +387,20 @@ function okj_yt_search($query)
     return array('ok' => true, 'videos' => $_SESSION['okj_yt_cache'][$cacheKey]['videos'], 'error' => '');
   }
 
+  // The fetch can take the full timeout, twice on the API path, and PHP holds
+  // the session file locked for as long as it is open - so every other request
+  // from this phone (the rotation poll, tapping a result, navigating away) would
+  // queue behind YouTube. Released for the fetch and reopened to write the
+  // cache. Reopening needs headers not yet sent, which is why youtube.php
+  // searches before rendering anything; called any later, it just keeps the lock.
+  $release = (session_status() === PHP_SESSION_ACTIVE && !headers_sent());
+  if ($release) session_write_close();
+
   $res = ($key !== '')
     ? okj_yt_search_api($effective, $limit, $key, $timeout)
     : okj_yt_search_scrape($effective, $limit, $timeout);
+
+  if ($release) session_start();
 
   // Failures aren't cached - the next search should try YouTube again rather
   // than repeat a network blip back at the singer for five minutes.

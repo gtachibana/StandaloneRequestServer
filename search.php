@@ -9,7 +9,9 @@ $input_query = trim(preg_replace('!\s+!', ' ', isset($_GET['q']) ? $_GET['q'] : 
 // If query is empty, remove search.php?q= from location bar
 if ($input_query == "")
 {
-  if (array_key_exists("HX-Request", getallheaders()))
+  // $_SERVER rather than getallheaders(): the latter keeps the name as sent, and
+  // HTTP/2 sends it lowercase, which a case-sensitive key lookup never matches.
+  if (isset($_SERVER['HTTP_HX_REQUEST']))
   {
     header("HX-Replace-Url: /");
   }

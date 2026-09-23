@@ -34,7 +34,12 @@ echo "<div
     <form
       id=\"req-modal-form\"
       hx-post=\"req-send.php\"
+      hx-sync=\"this:drop\"
       >";
+// hx-sync drop, because htmx's default queues a second tap on Send behind the
+// first - and by the time it fires, the success message has replaced the form's
+// inputs, so it posts nothing and paints an error or an empty name box over the
+// confirmation (or, signed out, invites a second submission of the same song).
 reqFormContent($songid, $artist, $title, $videoId, $durationSeconds);
 echo "</form>
   </div>

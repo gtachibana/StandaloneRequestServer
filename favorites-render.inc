@@ -11,6 +11,15 @@ function renderFavoritesFragment($actionError = '')
 
   errorBanner($actionError);
 
+  // A signed-in singer during an outage is not a signed-out singer, and telling
+  // them to sign in would send them to a password they probably don't have.
+  if ($user['unreachable'])
+  {
+    offlineNotice('Could not reach the KJ software');
+    echo '</div>';
+    return;
+  }
+
   if (!$user['authenticated'])
   {
     echo '<p>Favorites are tied to an account. <a href="/account.php" hx-boost="true">Sign in</a>

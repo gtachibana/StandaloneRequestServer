@@ -13,7 +13,11 @@ $error = '';
 // What the tap is asking for; corrected below if the call doesn't take.
 $isFavorite = ($action === 'add');
 
-if (!$user['authenticated'])
+if ($user['unreachable'])
+{
+  $error = 'Can\'t reach the karaoke software right now.';
+}
+elseif (!$user['authenticated'])
 {
   $error = 'Please sign in first.';
 }
