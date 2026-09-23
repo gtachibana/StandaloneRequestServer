@@ -46,7 +46,12 @@ if (!$fragment)
 
 echo '<div id="history-target">';
 
-if (!$user['authenticated'])
+if ($user['unreachable'])
+{
+  // Not "sign in" - the singer may well be signed in; we just couldn't ask.
+  offlineNotice('Could not reach the KJ software');
+}
+elseif (!$user['authenticated'])
 {
   echo '<p>Your history is tied to an account. <a href="/account.php" hx-boost="true">Sign in</a>
     to see what you&rsquo;ve sung here before.</p>';

@@ -110,30 +110,69 @@ function okj_client_address()
   static $address = null;
   if ($address !== null) return $address;
 
+  global $trustCloudflareHeader;
+
   $peer = isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : '';
   $address = $peer;
   if (!okj_proxy_is_trusted($peer)) return $address;
 
-  // Cloudflare's header first, as OpenKJ does: the edge sets it and discards any
-  // copy the phone sent, so it can't be spoofed from outside. X-Forwarded-For is
-  // the general fallback, leftmost entry being the original client.
-  $forwarded = isset($_SERVER['HTTP_CF_CONNECTING_IP']) ? $_SERVER['HTTP_CF_CONNECTING_IP'] : '';
-  if ($forwarded === '' && isset($_SERVER['HTTP_X_FORWARDED_FOR']))
+  // CF-Connecting-IP only on the venue's say-so. Cloudflare's edge sets it and
+  // discards any copy the phone sent, but a trusted proxy that *isn't*
+  // Cloudflare - nginx on this box, say - passes a phone's copy straight
+  // through, and loopback is trusted by default. Validated rather than passed on
+  // as written: on the API side this becomes a hash key held until the idle
+  // sweep, and a header is a header.
+  if (!empty($trustCloudflareHeader) && isset($_SERVER['HTTP_CF_CONNECTING_IP']))
   {
-    $parts = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
-    $forwarded = $parts[0];
+    $cf = trim($_SERVER['HTTP_CF_CONNECTING_IP']);
+    if ($cf !== '' && filter_var($cf, FILTER_VALIDATE_IP)) $address = $cf;
+    return $address;
   }
-  $forwarded = trim($forwarded);
 
-  // Validated rather than passed on as written: on the API side this becomes a
-  // hash key held until the idle sweep, and a header is a header.
-  if ($forwarded !== '' && filter_var($forwarded, FILTER_VALIDATE_IP)) $address = $forwarded;
+  // X-Forwarded-For is read from the right. Proxies *append* to it - nginx,
+  // Apache, Caddy and Cloudflare's edge alike - so everything left of the entry
+  // our own hop wrote is whatever the phone sent, and the leftmost entry is the
+  // one a phone picks freely. Walking back past the proxies we trust, the first
+  // address that isn't one is the client as our own infrastructure saw it.
+  if (!isset($_SERVER['HTTP_X_FORWARDED_FOR'])) return $address;
+  $hops = array_reverse(explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']));
+  foreach ($hops as $hop)
+  {
+    $hop = trim($hop);
+    // Junk where an address should be means a hop we can't vouch for wrote it;
+    // stop there and let the room share a bucket rather than guess.
+    if ($hop === '' || !filter_var($hop, FILTER_VALIDATE_IP)) return $address;
+    $address = $hop;
+    if (!okj_proxy_is_trusted($hop)) return $address;
+  }
   return $address;
+}
+
+// The status of the *final* response. With redirects followed, the stream
+// wrapper's $http_response_header holds every hop's headers in order, so [0] is
+// the first response's status line - a 302 - not the page that actually arrived.
+function okj_final_http_status($headers)
+{
+  $status = 0;
+  if (!is_array($headers)) return $status;
+  foreach ($headers as $line)
+  {
+    if (preg_match('!^HTTP/\S+\s+(\d+)!', $line, $m)) $status = (int)$m[1];
+  }
+  return $status;
 }
 
 function okj_call($method, $path, $body = null, $query = array())
 {
   global $openkjApiBase, $openkjTimeout;
+
+  // Once one call in this request has failed to reach OpenKJ at all, the rest
+  // fail straight away rather than each waiting out its own timeout. A page
+  // render asks for the event name, the user and the capabilities before it
+  // gets to its own content, so an outage would otherwise cost several timeouts
+  // per page instead of one.
+  static $unreachable = '';
+  if ($unreachable !== '') return okj_failure($unreachable);
 
   $url = rtrim($openkjApiBase, '/') . $path;
   // RFC3986, not http_build_query's RFC1738 default: the latter encodes a space
@@ -168,7 +207,11 @@ function okj_call($method, $path, $body = null, $query = array())
     $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
     $curlError = curl_error($ch);
     curl_close($ch);
-    if ($raw === false) return okj_failure($curlError ? $curlError : 'Could not reach the KJ software');
+    if ($raw === false)
+    {
+      $unreachable = $curlError ? $curlError : 'Could not reach the KJ software';
+      return okj_failure($unreachable);
+    }
   }
   else
   {
@@ -180,10 +223,12 @@ function okj_call($method, $path, $body = null, $query = array())
     ));
     if ($method === 'POST') $options['http']['content'] = $payload;
     $raw = @file_get_contents($url, false, stream_context_create($options));
-    if ($raw === false) return okj_failure('Could not reach the KJ software');
-    $status = 0;
-    if (isset($http_response_header[0]) &&
-        preg_match('!HTTP/\S+\s+(\d+)!', $http_response_header[0], $m)) $status = (int)$m[1];
+    if ($raw === false)
+    {
+      $unreachable = 'Could not reach the KJ software';
+      return okj_failure($unreachable);
+    }
+    $status = okj_final_http_status(isset($http_response_header) ? $http_response_header : null);
   }
 
   $data = json_decode($raw, true);
@@ -300,24 +345,36 @@ function okj_user($refresh = false)
   if ($refresh) $user = null;
   if ($user !== null) return $user;
 
-  $user = array('authenticated' => false, 'username' => '', 'inRotation' => false, 'away' => false);
+  // 'unreachable' separates "we couldn't ask" from "signed out", so a page can
+  // say the KJ software is down instead of telling a signed-in singer to sign in.
+  $user = array('authenticated' => false, 'username' => '', 'inRotation' => false, 'away' => false,
+    'unreachable' => false);
   $token = okj_token();
   if ($token === '') return $user;
 
   $res = okj_get('/local/user/me', array('token' => $token));
-  // An unreachable API has said nothing about this token, so it keeps it. The
-  // distinction didn't matter while the token lived in a browser-session cookie,
-  // but it does now: discarding it here would mean an OpenKJ restart mid-show
-  // permanently signed out every phone in the room, each of them needing a
-  // password nobody has typed since they set it. The singer sees signed-out for
-  // as long as the outage lasts and is back afterwards without doing anything.
-  if ($res['status'] === 0) return $user;
 
-  if (!$res['ok'] || empty($res['data']['authenticated']))
+  // Only an answer that is *about the token* may discard it, and OpenKJ gives
+  // exactly one: a successful response saying authenticated:false. Expired or
+  // revoked both land there - the latter is a real path, since a KJ resetting a
+  // forgotten password ends that account's sessions.
+  if ($res['ok'] && empty($res['data']['authenticated']))
   {
-    // Token expired or was revoked on the OpenKJ side - the latter is now a real
-    // path, since a KJ resetting a forgotten password ends that account's sessions.
     okj_forget_token();
+    return $user;
+  }
+
+  // Anything else has said nothing about this token, so it keeps it: no answer
+  // at all, but equally a 5xx, a proxy's 502 while OpenKJ restarts, or a body
+  // that isn't JSON. The distinction didn't matter while the token lived in a
+  // browser-session cookie, but it does now: discarding it here would mean an
+  // OpenKJ restart mid-show permanently signed out every phone in the room, each
+  // of them needing a password nobody has typed since they set it. The singer
+  // sees signed-out for as long as the outage lasts and is back afterwards
+  // without doing anything.
+  if (!$res['ok'])
+  {
+    $user['unreachable'] = true;
     return $user;
   }
 
@@ -326,6 +383,7 @@ function okj_user($refresh = false)
     'username' => isset($res['data']['username']) ? $res['data']['username'] : '',
     'inRotation' => !empty($res['data']['inRotation']),
     'away' => !empty($res['data']['away']),
+    'unreachable' => false,
   );
   return $user;
 }
@@ -456,12 +514,17 @@ function okj_capabilities()
   }
 
   $res = okj_get('/local/capabilities');
-  // Deliberately not cached on failure: an unreachable API would otherwise
-  // leave the phone believing every optional feature is off for five minutes
-  // after the KJ's laptop comes back.
+  // A failure is cached too, since the nav bar asks on every full page and an
+  // uncached failure is a round trip per page, but for how long depends on what
+  // failed. A 404 is an OpenKJ predating the route, which isn't going to grow
+  // one mid-show, so it gets the full TTL. Anything else - an unreachable API, a
+  // 5xx - is held only briefly, so a phone doesn't believe every optional
+  // feature is off for five minutes after the KJ's laptop comes back.
   if (!$res['ok'])
   {
     $caps = array();
+    $_SESSION['okj_caps'] = $caps;
+    $_SESSION['okj_caps_until'] = time() + ($res['status'] === 404 ? 300 : 15);
     return $caps;
   }
 

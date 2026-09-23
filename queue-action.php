@@ -9,7 +9,12 @@ $action = isset($_POST['action']) ? $_POST['action'] : '';
 $entryId = isset($_POST['entryId']) ? (string)$_POST['entryId'] : '';
 $error = '';
 
-if (!$user['authenticated'])
+if ($user['unreachable'])
+{
+  // Not "sign in first" - the singer may well be signed in. The rotation below
+  // will fail the same way and show the offline notice, which says it better.
+}
+elseif (!$user['authenticated'])
 {
   $error = 'Please sign in first.';
 }

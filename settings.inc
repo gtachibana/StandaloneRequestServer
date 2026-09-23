@@ -24,8 +24,9 @@ $openkjApiBase = 'http://127.0.0.1:5050';
 // stalled UI for the KJ.
 $openkjTimeout = 4;
 
-// Addresses of proxies in front of *this app* whose client-address headers
-// (CF-Connecting-IP, then X-Forwarded-For) may be believed. Loopback is always
+// Addresses of proxies in front of *this app* whose X-Forwarded-For entries may
+// be believed. The header is read from the right, skipping these, so the address
+// used is the one our own infrastructure saw rather than one a phone wrote in. Loopback is always
 // trusted, which already covers a tunnel connector or reverse proxy running on
 // this machine, so this is only needed when that proxy reaches the webserver
 // over the network.
@@ -39,6 +40,13 @@ $openkjTimeout = 4;
 // at will. The API in turn only reads what we send when *it* trusts this
 // webserver - loopback, or its own embeddedApiTrustedProxies list.
 $trustedProxies = array();
+
+// Whether to believe CF-Connecting-IP from a trusted proxy. Only safe when that
+// proxy really is Cloudflare (a tunnel connector, or Cloudflare-only ingress):
+// any other proxy - nginx on this box included, which is trusted as loopback -
+// passes a phone's own copy of the header straight through. Off loses nothing
+// behind Cloudflare, whose edge also appends the client to X-Forwarded-For.
+$trustCloudflareHeader = false;
 
 // Max songs to pull back per search (the API itself clamps to 500) and per
 // browse-by-letter page (clamped to 1000).
